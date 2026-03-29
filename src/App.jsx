@@ -91,29 +91,6 @@ function loadGenotypePresets() {
   }
 }
 
-function encodeShareData(data) {
-  const json = JSON.stringify(data)
-  const bytes = new TextEncoder().encode(json)
-  let binary = ''
-  bytes.forEach((b) => {
-    binary += String.fromCharCode(b)
-  })
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
-}
-
-function decodeShareData(encoded) {
-  const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/')
-  const padded = base64 + '='.repeat((4 - (base64.length % 4 || 4)) % 4)
-  const binary = atob(padded)
-  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
-  const json = new TextDecoder().decode(bytes)
-  const parsed = JSON.parse(json)
-  if (!parsed || !Array.isArray(parsed.cages) || !Array.isArray(parsed.mice)) {
-    throw new Error('invalid share data')
-  }
-  return parsed
-}
-
 function App() {
   const [page, setPage] = useState('dashboard')
   const [state, setState] = useState(defaultState)
@@ -125,7 +102,7 @@ function App() {
   const [editingMouseId, setEditingMouseId] = useState(null)
   const [selectedCageId, setSelectedCageId] = useState(null)
   const [shareMode, setShareMode] = useState(false)
-  const [shareLink, setShareLink] = useState('')
+  const [shareDataPath, setShareDataPath] = useState('')
 
   const [cageKeyword, setCageKeyword] = useState('')
   const [cageStatusFilter, setCageStatusFilter] = useState('')
@@ -165,19 +142,28 @@ function App() {
     setPresetEditor(presets.join('\n'))
 
     const params = new URLSearchParams(window.location.search)
-    const shared = params.get('share')
+    const dataPath = params.get('data')
 
-    if (shared) {
-      try {
-        const sharedState = decodeShareData(shared)
-        setState(sharedState)
-        setShareMode(true)
-        setPage('dashboard')
-      } catch {
-        setState(loadState())
-        setShareMode(false)
-        setToast('分享链接解析失败，已加载本地数据')
-      }
+    if (dataPath) {
+      fetch(dataPath)
+        .then((res) => {
+          if (!res.ok) throw new Error('fetch failed')
+          return res.json()
+        })
+        .then((json) => {
+          if (!json || !Array.isArray(json.cages) || !Array.isArray(json.mice)) {
+            throw new Error('bad json')
+          }
+          setState(json)
+          setShareMode(true)
+          setShareDataPath(dataPath)
+          setPage('dashboard')
+        })
+        .catch(() => {
+          setState(loadState())
+          setShareMode(false)
+          setToast('分享数据加载失败，已加载本地数据')
+        })
     } else {
       setState(loadState())
       setShareMode(false)
@@ -595,6 +581,24 @@ function App() {
     showToast('已导出 JSON')
   }
 
+  function exportShareJSON() {
+    const now = new Date()
+    const filename = `share-${now.getFullYear()}-${String(
+      now.getMonth() + 1
+    ).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.json`
+
+    const blob = new Blob([JSON.stringify(state, null, 2)], {
+      type: 'application/json',
+    })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 500)
+    showToast('已导出分享 JSON')
+  }
+
   function importJSON(event) {
     if (shareMode) return
     const file = event.target.files?.[0]
@@ -614,22 +618,17 @@ function App() {
     reader.readAsText(file, 'utf-8')
   }
 
-  async function generateShareLink() {
+  async function copyShortLinkTemplate() {
+    const example = `${window.location.origin}${window.location.pathname}?data=share-2026-03-29.json`
     try {
-      const encoded = encodeShareData(state)
-      const url = new URL(window.location.href)
-      url.searchParams.set('share', encoded)
-      const finalLink = url.toString()
-      setShareLink(finalLink)
-
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(finalLink)
-        showToast('分享链接已复制')
+        await navigator.clipboard.writeText(example)
+        showToast('短链接模板已复制')
       } else {
-        showToast('分享链接已生成')
+        showToast('请手动复制短链接模板')
       }
     } catch {
-      showToast('生成分享链接失败')
+      showToast('请手动复制短链接模板')
     }
   }
 
@@ -641,7 +640,7 @@ function App() {
 
   function exitShareMode() {
     const url = new URL(window.location.href)
-    url.searchParams.delete('share')
+    url.searchParams.delete('data')
     window.location.href = url.toString()
   }
 
@@ -701,7 +700,8 @@ function App() {
             }}
           >
             <div style={{ fontSize: '14px', color: '#9a3412', fontWeight: 700 }}>
-              当前是分享只读模式。你看到的是别人分享给你的数据快照。
+              当前是分享只读模式。你看到的是分享文件：
+              <span style={{ marginLeft: '6px' }}>{shareDataPath}</span>
             </div>
             <div className="toolbar">
               <button className="btn-light" onClick={saveSharedDataToLocal}>
@@ -728,175 +728,74 @@ function App() {
                   <small>所有小鼠总盘</small>
                 </div>
                 <div className="stats">
-                  <div className="stat">
-                    <div className="label">小鼠总数</div>
-                    <div className="value">{dashboardStats.total}</div>
-                  </div>
-                  <div className="stat">
-                    <div className="label">在养</div>
-                    <div className="value">{dashboardStats.alive}</div>
-                  </div>
-                  <div className="stat">
-                    <div className="label">配对中</div>
-                    <div className="value">{dashboardStats.mating}</div>
-                  </div>
-                  <div className="stat">
-                    <div className="label">待鉴定</div>
-                    <div className="value">{dashboardStats.pending}</div>
-                  </div>
-                  <div className="stat">
-                    <div className="label">保留</div>
-                    <div className="value">{dashboardStats.keep}</div>
-                  </div>
-                  <div className="stat">
-                    <div className="label">已取材</div>
-                    <div className="value">{dashboardStats.sampled}</div>
-                  </div>
-                  <div className="stat">
-                    <div className="label">淘汰/死亡</div>
-                    <div className="value">{dashboardStats.removed}</div>
-                  </div>
+                  <div className="stat"><div className="label">小鼠总数</div><div className="value">{dashboardStats.total}</div></div>
+                  <div className="stat"><div className="label">在养</div><div className="value">{dashboardStats.alive}</div></div>
+                  <div className="stat"><div className="label">配对中</div><div className="value">{dashboardStats.mating}</div></div>
+                  <div className="stat"><div className="label">待鉴定</div><div className="value">{dashboardStats.pending}</div></div>
+                  <div className="stat"><div className="label">保留</div><div className="value">{dashboardStats.keep}</div></div>
+                  <div className="stat"><div className="label">已取材</div><div className="value">{dashboardStats.sampled}</div></div>
+                  <div className="stat"><div className="label">淘汰/死亡</div><div className="value">{dashboardStats.removed}</div></div>
                 </div>
               </div>
 
               <div className="vertical-panels">
                 <div className="card">
-                  <div className="section-title">
-                    <h3>基因型统计</h3>
-                  </div>
+                  <div className="section-title"><h3>基因型统计</h3></div>
                   <div className="table-wrap">
                     <table>
-                      <thead>
-                        <tr>
-                          <th>基因型</th>
-                          <th>数量</th>
-                        </tr>
-                      </thead>
+                      <thead><tr><th>基因型</th><th>数量</th></tr></thead>
                       <tbody>
-                        {genotypeRows.length ? (
-                          genotypeRows.map(([k, v]) => (
-                            <tr key={k}>
-                              <td>{k}</td>
-                              <td>{v}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan="2" className="empty">
-                              暂无统计数据
-                            </td>
-                          </tr>
-                        )}
+                        {genotypeRows.length ? genotypeRows.map(([k, v]) => (
+                          <tr key={k}><td>{k}</td><td>{v}</td></tr>
+                        )) : <tr><td colSpan="2" className="empty">暂无统计数据</td></tr>}
                       </tbody>
                     </table>
                   </div>
                 </div>
 
                 <div className="card">
-                  <div className="section-title">
-                    <h3>基因型 + 性别统计</h3>
-                  </div>
+                  <div className="section-title"><h3>基因型 + 性别统计</h3></div>
                   <div className="table-wrap">
                     <table>
-                      <thead>
-                        <tr>
-                          <th>基因型</th>
-                          <th>性别</th>
-                          <th>数量</th>
-                        </tr>
-                      </thead>
+                      <thead><tr><th>基因型</th><th>性别</th><th>数量</th></tr></thead>
                       <tbody>
-                        {genotypeSexRows.length ? (
-                          genotypeSexRows.map(([g, s, v], idx) => (
-                            <tr key={`${g}-${s}-${idx}`}>
-                              <td>{g}</td>
-                              <td>
-                                <span
-                                  className={`sex-tag ${
-                                    s === '♂'
-                                      ? 'sex-male'
-                                      : s === '♀'
-                                      ? 'sex-female'
-                                      : ''
-                                  }`}
-                                >
-                                  {s}
-                                </span>
-                              </td>
-                              <td>{v}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan="3" className="empty">
-                              暂无统计数据
+                        {genotypeSexRows.length ? genotypeSexRows.map(([g, s, v], idx) => (
+                          <tr key={`${g}-${s}-${idx}`}>
+                            <td>{g}</td>
+                            <td>
+                              <span className={`sex-tag ${s === '♂' ? 'sex-male' : s === '♀' ? 'sex-female' : ''}`}>{s}</span>
                             </td>
+                            <td>{v}</td>
                           </tr>
-                        )}
+                        )) : <tr><td colSpan="3" className="empty">暂无统计数据</td></tr>}
                       </tbody>
                     </table>
                   </div>
                 </div>
 
                 <div className="card">
-                  <div className="section-title">
-                    <h3>来源统计</h3>
-                  </div>
+                  <div className="section-title"><h3>来源统计</h3></div>
                   <div className="table-wrap">
                     <table>
-                      <thead>
-                        <tr>
-                          <th>来源</th>
-                          <th>数量</th>
-                        </tr>
-                      </thead>
+                      <thead><tr><th>来源</th><th>数量</th></tr></thead>
                       <tbody>
-                        {sourceRows.length ? (
-                          sourceRows.map(([k, v]) => (
-                            <tr key={k}>
-                              <td>{k}</td>
-                              <td>{v}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan="2" className="empty">
-                              暂无统计数据
-                            </td>
-                          </tr>
-                        )}
+                        {sourceRows.length ? sourceRows.map(([k, v]) => (
+                          <tr key={k}><td>{k}</td><td>{v}</td></tr>
+                        )) : <tr><td colSpan="2" className="empty">暂无统计数据</td></tr>}
                       </tbody>
                     </table>
                   </div>
                 </div>
 
                 <div className="card">
-                  <div className="section-title">
-                    <h3>小鼠状态统计</h3>
-                  </div>
+                  <div className="section-title"><h3>小鼠状态统计</h3></div>
                   <div className="table-wrap">
                     <table>
-                      <thead>
-                        <tr>
-                          <th>状态</th>
-                          <th>数量</th>
-                        </tr>
-                      </thead>
+                      <thead><tr><th>状态</th><th>数量</th></tr></thead>
                       <tbody>
-                        {mouseStatusRows.length ? (
-                          mouseStatusRows.map(([k, v]) => (
-                            <tr key={k}>
-                              <td>{k}</td>
-                              <td>{v}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan="2" className="empty">
-                              暂无统计数据
-                            </td>
-                          </tr>
-                        )}
+                        {mouseStatusRows.length ? mouseStatusRows.map(([k, v]) => (
+                          <tr key={k}><td>{k}</td><td>{v}</td></tr>
+                        )) : <tr><td colSpan="2" className="empty">暂无统计数据</td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -922,45 +821,11 @@ function App() {
                   </div>
 
                   <div className="form-grid">
-                    <div className="field">
-                      <label>笼号</label>
-                      <input
-                        value={cageForm.cageNo}
-                        onChange={(e) =>
-                          setCageForm((prev) => ({
-                            ...prev,
-                            cageNo: e.target.value,
-                          }))
-                        }
-                        placeholder="如 1 / A01"
-                      />
-                    </div>
-
-                    <div className="field">
-                      <label>笼名</label>
-                      <input
-                        value={cageForm.cageName}
-                        onChange={(e) =>
-                          setCageForm((prev) => ({
-                            ...prev,
-                            cageName: e.target.value,
-                          }))
-                        }
-                        placeholder="如 Snapin繁殖1笼"
-                      />
-                    </div>
-
+                    <div className="field"><label>笼号</label><input value={cageForm.cageNo} onChange={(e) => setCageForm((prev) => ({ ...prev, cageNo: e.target.value }))} placeholder="如 1 / A01" /></div>
+                    <div className="field"><label>笼名</label><input value={cageForm.cageName} onChange={(e) => setCageForm((prev) => ({ ...prev, cageName: e.target.value }))} placeholder="如 Snapin繁殖1笼" /></div>
                     <div className="field">
                       <label>笼类型</label>
-                      <select
-                        value={cageForm.cageType}
-                        onChange={(e) =>
-                          setCageForm((prev) => ({
-                            ...prev,
-                            cageType: e.target.value,
-                          }))
-                        }
-                      >
+                      <select value={cageForm.cageType} onChange={(e) => setCageForm((prev) => ({ ...prev, cageType: e.target.value }))}>
                         <option value="繁殖笼">繁殖笼</option>
                         <option value="成鼠笼">成鼠笼</option>
                         <option value="幼鼠笼">幼鼠笼</option>
@@ -968,18 +833,9 @@ function App() {
                         <option value="观察笼">观察笼</option>
                       </select>
                     </div>
-
                     <div className="field">
                       <label>笼位状态</label>
-                      <select
-                        value={cageForm.cageStatus}
-                        onChange={(e) =>
-                          setCageForm((prev) => ({
-                            ...prev,
-                            cageStatus: e.target.value,
-                          }))
-                        }
-                      >
+                      <select value={cageForm.cageStatus} onChange={(e) => setCageForm((prev) => ({ ...prev, cageStatus: e.target.value }))}>
                         <option value="正常">正常</option>
                         <option value="配对中">配对中</option>
                         <option value="哺乳中">哺乳中</option>
@@ -988,54 +844,24 @@ function App() {
                         <option value="已分笼">已分笼</option>
                       </select>
                     </div>
-
-                    <div className="field full">
-                      <label>备注</label>
-                      <textarea
-                        value={cageForm.note}
-                        onChange={(e) =>
-                          setCageForm((prev) => ({
-                            ...prev,
-                            note: e.target.value,
-                          }))
-                        }
-                        placeholder="例如：3月10日合笼；4月2日产仔；待PCR"
-                      />
-                    </div>
+                    <div className="field full"><label>备注</label><textarea value={cageForm.note} onChange={(e) => setCageForm((prev) => ({ ...prev, note: e.target.value }))} placeholder="例如：3月10日合笼；4月2日产仔；待PCR" /></div>
                   </div>
 
                   <div className="actions">
-                    <button className="btn-primary" onClick={saveCage}>
-                      保存笼位
-                    </button>
-                    <button className="btn-light" onClick={resetCageForm}>
-                      清空
-                    </button>
+                    <button className="btn-primary" onClick={saveCage}>保存笼位</button>
+                    <button className="btn-light" onClick={resetCageForm}>清空</button>
                   </div>
                 </div>
               )}
 
               <div className="card">
-                <div className="section-title">
-                  <h3>笼位列表</h3>
-                  <small>点击“查看详情”可看笼内小鼠</small>
-                </div>
+                <div className="section-title"><h3>笼位列表</h3><small>点击“查看详情”可看笼内小鼠</small></div>
 
                 <div className="filters">
-                  <div className="field">
-                    <label>按笼号/笼名搜索</label>
-                    <input
-                      value={cageKeyword}
-                      onChange={(e) => setCageKeyword(e.target.value)}
-                      placeholder="输入笼号或笼名"
-                    />
-                  </div>
+                  <div className="field"><label>按笼号/笼名搜索</label><input value={cageKeyword} onChange={(e) => setCageKeyword(e.target.value)} placeholder="输入笼号或笼名" /></div>
                   <div className="field">
                     <label>按状态筛选</label>
-                    <select
-                      value={cageStatusFilter}
-                      onChange={(e) => setCageStatusFilter(e.target.value)}
-                    >
+                    <select value={cageStatusFilter} onChange={(e) => setCageStatusFilter(e.target.value)}>
                       <option value="">全部</option>
                       <option value="正常">正常</option>
                       <option value="配对中">配对中</option>
@@ -1048,205 +874,92 @@ function App() {
                 </div>
 
                 <div className="cage-grid mt14">
-                  {filteredCages.length ? (
-                    filteredCages.map((c) => {
-                      const summary = getCageSummary(c.id)
-                      return (
-                        <div className="cage-card" key={c.id}>
-                          <div className="title">
-                            <h4>{c.cageNo}</h4>
-                            <span
-                              className={`tag ${getStatusClass(c.cageStatus)}`}
-                            >
-                              {c.cageStatus}
-                            </span>
-                          </div>
-
-                          <div className="meta">
-                            <div>
-                              <strong>笼名：</strong>
-                              {c.cageName || '-'}
-                            </div>
-                            <div>
-                              <strong>笼类型：</strong>
-                              {c.cageType || '-'}
-                            </div>
-                            <div>
-                              <strong>当前鼠总数：</strong>
-                              {summary.total}
-                            </div>
-                            <div>
-                              <strong>成鼠数量：</strong>
-                              {summary.adultCount}
-                            </div>
-                            <div>
-                              <strong>幼鼠数量：</strong>
-                              {summary.juvenileCount}
-                            </div>
-                            <div>
-                              <strong>幼鼠出生日期：</strong>
-                              {summary.juvenileBirthDate || '-'}
-                            </div>
-                            <div>
-                              <strong>幼鼠天数/年龄：</strong>
-                              {summary.juvenileAge}
-                            </div>
-                            <div>
-                              <strong>备注：</strong>
-                              <span className="muted">{c.note || '-'}</span>
-                            </div>
-                          </div>
-
-                          <div className="actions">
-                            <button
-                              className="btn-light"
-                              onClick={() => {
-                                setSelectedCageId(c.id)
-                                setPage('cages')
-                                setTimeout(() => {
-                                  const el = document.getElementById(
-                                    'cage-detail-card'
-                                  )
-                                  if (el) {
-                                    window.scrollTo({
-                                      top: el.offsetTop - 20,
-                                      behavior: 'smooth',
-                                    })
-                                  }
-                                }, 50)
-                              }}
-                            >
-                              查看详情
-                            </button>
-                            {!shareMode && (
-                              <>
-                                <button
-                                  className="btn-light"
-                                  onClick={() => editCage(c.id)}
-                                >
-                                  编辑
-                                </button>
-                                <button
-                                  className="btn-danger"
-                                  onClick={() => deleteCage(c.id)}
-                                >
-                                  删除
-                                </button>
-                              </>
-                            )}
-                          </div>
+                  {filteredCages.length ? filteredCages.map((c) => {
+                    const summary = getCageSummary(c.id)
+                    return (
+                      <div className="cage-card" key={c.id}>
+                        <div className="title">
+                          <h4>{c.cageNo}</h4>
+                          <span className={`tag ${getStatusClass(c.cageStatus)}`}>{c.cageStatus}</span>
                         </div>
-                      )
-                    })
-                  ) : (
-                    <div className="empty full-span">暂无笼位记录</div>
-                  )}
+
+                        <div className="meta">
+                          <div><strong>笼名：</strong>{c.cageName || '-'}</div>
+                          <div><strong>笼类型：</strong>{c.cageType || '-'}</div>
+                          <div><strong>当前鼠总数：</strong>{summary.total}</div>
+                          <div><strong>成鼠数量：</strong>{summary.adultCount}</div>
+                          <div><strong>幼鼠数量：</strong>{summary.juvenileCount}</div>
+                          <div><strong>幼鼠出生日期：</strong>{summary.juvenileBirthDate || '-'}</div>
+                          <div><strong>幼鼠天数/年龄：</strong>{summary.juvenileAge}</div>
+                          <div><strong>备注：</strong><span className="muted">{c.note || '-'}</span></div>
+                        </div>
+
+                        <div className="actions">
+                          <button
+                            className="btn-light"
+                            onClick={() => {
+                              setSelectedCageId(c.id)
+                              setPage('cages')
+                              setTimeout(() => {
+                                const el = document.getElementById('cage-detail-card')
+                                if (el) {
+                                  window.scrollTo({ top: el.offsetTop - 20, behavior: 'smooth' })
+                                }
+                              }, 50)
+                            }}
+                          >
+                            查看详情
+                          </button>
+                          {!shareMode && (
+                            <>
+                              <button className="btn-light" onClick={() => editCage(c.id)}>编辑</button>
+                              <button className="btn-danger" onClick={() => deleteCage(c.id)}>删除</button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  }) : <div className="empty full-span">暂无笼位记录</div>}
                 </div>
               </div>
 
               {selectedCage && (
                 <div className="card" id="cage-detail-card">
-                  <div className="section-title">
-                    <h3>笼位详情｜{selectedCage.cageNo}</h3>
-                    <small>笼信息 + 笼内小鼠</small>
-                  </div>
+                  <div className="section-title"><h3>笼位详情｜{selectedCage.cageNo}</h3><small>笼信息 + 笼内小鼠</small></div>
 
                   <div className="stack">
                     <div className="chips">
-                      <span
-                        className={`tag ${getStatusClass(
-                          selectedCage.cageStatus
-                        )}`}
-                      >
-                        {selectedCage.cageStatus}
-                      </span>
-                      <span className="tag">
-                        笼类型：{selectedCage.cageType || '-'}
-                      </span>
-                      <span className="tag">
-                        当前鼠总数：{getCageSummary(selectedCage.id).total}
-                      </span>
-                      <span className="tag">
-                        成鼠数量：{getCageSummary(selectedCage.id).adultCount}
-                      </span>
-                      <span className="tag">
-                        幼鼠数量：{getCageSummary(selectedCage.id).juvenileCount}
-                      </span>
-                      <span className="tag">
-                        幼鼠出生日期：
-                        {getCageSummary(selectedCage.id).juvenileBirthDate || '-'}
-                      </span>
-                      <span className="tag">
-                        幼鼠天数/年龄：
-                        {getCageSummary(selectedCage.id).juvenileAge}
-                      </span>
+                      <span className={`tag ${getStatusClass(selectedCage.cageStatus)}`}>{selectedCage.cageStatus}</span>
+                      <span className="tag">笼类型：{selectedCage.cageType || '-'}</span>
+                      <span className="tag">当前鼠总数：{getCageSummary(selectedCage.id).total}</span>
+                      <span className="tag">成鼠数量：{getCageSummary(selectedCage.id).adultCount}</span>
+                      <span className="tag">幼鼠数量：{getCageSummary(selectedCage.id).juvenileCount}</span>
+                      <span className="tag">幼鼠出生日期：{getCageSummary(selectedCage.id).juvenileBirthDate || '-'}</span>
+                      <span className="tag">幼鼠天数/年龄：{getCageSummary(selectedCage.id).juvenileAge}</span>
                     </div>
 
-                    <div>
-                      <strong>笼名：</strong>
-                      {selectedCage.cageName || '-'}
-                    </div>
-                    <div>
-                      <strong>备注：</strong>
-                      {selectedCage.note || '-'}
-                    </div>
+                    <div><strong>笼名：</strong>{selectedCage.cageName || '-'}</div>
+                    <div><strong>备注：</strong>{selectedCage.note || '-'}</div>
                   </div>
 
                   <div className="table-wrap mt14">
                     <table>
                       <thead>
-                        <tr>
-                          <th>小鼠编号</th>
-                          <th>性别</th>
-                          <th>基因型</th>
-                          <th>出生日期</th>
-                          <th>年龄</th>
-                          <th>小鼠状态</th>
-                          <th>来源</th>
-                          <th>备注</th>
-                        </tr>
+                        <tr><th>小鼠编号</th><th>性别</th><th>基因型</th><th>出生日期</th><th>年龄</th><th>小鼠状态</th><th>来源</th><th>备注</th></tr>
                       </thead>
                       <tbody>
-                        {selectedCageMice.length ? (
-                          selectedCageMice.map((m) => (
-                            <tr key={m.id}>
-                              <td>{m.mouseId}</td>
-                              <td>
-                                <span
-                                  className={`sex-tag ${
-                                    m.sex === '♂'
-                                      ? 'sex-male'
-                                      : m.sex === '♀'
-                                      ? 'sex-female'
-                                      : ''
-                                  }`}
-                                >
-                                  {m.sex || '-'}
-                                </span>
-                              </td>
-                              <td>{m.genotype || '-'}</td>
-                              <td>{m.birthDate || '-'}</td>
-                              <td>{formatAge(m.birthDate)}</td>
-                              <td>
-                                <span
-                                  className={`tag ${getStatusClass(
-                                    m.mouseStatus
-                                  )}`}
-                                >
-                                  {m.mouseStatus || '-'}
-                                </span>
-                              </td>
-                              <td>{m.source || '-'}</td>
-                              <td>{m.note || '-'}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan="8" className="empty">
-                              这个笼里还没有小鼠
-                            </td>
+                        {selectedCageMice.length ? selectedCageMice.map((m) => (
+                          <tr key={m.id}>
+                            <td>{m.mouseId}</td>
+                            <td><span className={`sex-tag ${m.sex === '♂' ? 'sex-male' : m.sex === '♀' ? 'sex-female' : ''}`}>{m.sex || '-'}</span></td>
+                            <td>{m.genotype || '-'}</td>
+                            <td>{m.birthDate || '-'}</td>
+                            <td>{formatAge(m.birthDate)}</td>
+                            <td><span className={`tag ${getStatusClass(m.mouseStatus)}`}>{m.mouseStatus || '-'}</span></td>
+                            <td>{m.source || '-'}</td>
+                            <td>{m.note || '-'}</td>
                           </tr>
-                        )}
+                        )) : <tr><td colSpan="8" className="empty">这个笼里还没有小鼠</td></tr>}
                       </tbody>
                     </table>
                   </div>
@@ -1266,43 +979,18 @@ function App() {
             <div className="stack">
               {!shareMode && (
                 <div className="card">
-                  <div className="section-title">
-                    <h3>{editingMouseId ? '编辑小鼠' : '新增小鼠'}</h3>
-                    <small>基因型和来源支持选择或自定义</small>
-                  </div>
+                  <div className="section-title"><h3>{editingMouseId ? '编辑小鼠' : '新增小鼠'}</h3><small>基因型和来源支持选择或自定义</small></div>
 
                   <div className="form-grid">
-                    <div className="field">
-                      <label>小鼠编号</label>
-                      <input
-                        value={mouseForm.mouseId}
-                        onChange={(e) =>
-                          setMouseForm((prev) => ({
-                            ...prev,
-                            mouseId: e.target.value,
-                          }))
-                        }
-                        placeholder="如 M001"
-                      />
-                    </div>
-
+                    <div className="field"><label>小鼠编号</label><input value={mouseForm.mouseId} onChange={(e) => setMouseForm((prev) => ({ ...prev, mouseId: e.target.value }))} placeholder="如 M001" /></div>
                     <div className="field">
                       <label>性别</label>
-                      <select
-                        value={mouseForm.sex}
-                        onChange={(e) =>
-                          setMouseForm((prev) => ({
-                            ...prev,
-                            sex: e.target.value,
-                          }))
-                        }
-                      >
+                      <select value={mouseForm.sex} onChange={(e) => setMouseForm((prev) => ({ ...prev, sex: e.target.value }))}>
                         <option value="">请选择</option>
                         <option value="♂">♂</option>
                         <option value="♀">♀</option>
                       </select>
                     </div>
-
                     <div className="field">
                       <label>基因型</label>
                       <select
@@ -1311,71 +999,24 @@ function App() {
                           setMouseForm((prev) => ({
                             ...prev,
                             genotypeSelect: e.target.value,
-                            genotypeCustom:
-                              e.target.value && e.target.value !== 'custom'
-                                ? e.target.value
-                                : prev.genotypeCustom,
+                            genotypeCustom: e.target.value && e.target.value !== 'custom' ? e.target.value : prev.genotypeCustom,
                           }))
                         }
                       >
                         <option value="">请选择</option>
-                        {genotypePresets.map((item) => (
-                          <option key={item} value={item}>
-                            {item}
-                          </option>
-                        ))}
+                        {genotypePresets.map((item) => <option key={item} value={item}>{item}</option>)}
                         <option value="custom">自定义</option>
                       </select>
                     </div>
-
-                    <div className="field">
-                      <label>自定义基因型</label>
-                      <input
-                        value={mouseForm.genotypeCustom}
-                        onChange={(e) =>
-                          setMouseForm((prev) => ({
-                            ...prev,
-                            genotypeCustom: e.target.value,
-                          }))
-                        }
-                        placeholder="选自定义后填写"
-                      />
-                    </div>
-
-                    <div className="field">
-                      <label>出生日期</label>
-                      <input
-                        type="date"
-                        value={mouseForm.birthDate}
-                        onChange={(e) =>
-                          setMouseForm((prev) => ({
-                            ...prev,
-                            birthDate: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-
+                    <div className="field"><label>自定义基因型</label><input value={mouseForm.genotypeCustom} onChange={(e) => setMouseForm((prev) => ({ ...prev, genotypeCustom: e.target.value }))} placeholder="选自定义后填写" /></div>
+                    <div className="field"><label>出生日期</label><input type="date" value={mouseForm.birthDate} onChange={(e) => setMouseForm((prev) => ({ ...prev, birthDate: e.target.value }))} /></div>
                     <div className="field">
                       <label>当前笼位</label>
-                      <select
-                        value={mouseForm.cageId}
-                        onChange={(e) =>
-                          setMouseForm((prev) => ({
-                            ...prev,
-                            cageId: e.target.value,
-                          }))
-                        }
-                      >
+                      <select value={mouseForm.cageId} onChange={(e) => setMouseForm((prev) => ({ ...prev, cageId: e.target.value }))}>
                         <option value="">请选择笼位</option>
-                        {cagesSorted.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.cageNo}｜{c.cageName || ''}
-                          </option>
-                        ))}
+                        {cagesSorted.map((c) => <option key={c.id} value={c.id}>{c.cageNo}｜{c.cageName || ''}</option>)}
                       </select>
                     </div>
-
                     <div className="field">
                       <label>来源</label>
                       <select
@@ -1384,10 +1025,7 @@ function App() {
                           setMouseForm((prev) => ({
                             ...prev,
                             sourceSelect: e.target.value,
-                            sourceCustom:
-                              e.target.value && e.target.value !== 'custom'
-                                ? e.target.value
-                                : prev.sourceCustom,
+                            sourceCustom: e.target.value && e.target.value !== 'custom' ? e.target.value : prev.sourceCustom,
                           }))
                         }
                       >
@@ -1399,58 +1037,12 @@ function App() {
                         <option value="custom">自定义</option>
                       </select>
                     </div>
-
-                    <div className="field">
-                      <label>自定义来源</label>
-                      <input
-                        value={mouseForm.sourceCustom}
-                        onChange={(e) =>
-                          setMouseForm((prev) => ({
-                            ...prev,
-                            sourceCustom: e.target.value,
-                          }))
-                        }
-                        placeholder="选自定义后填写"
-                      />
-                    </div>
-
-                    <div className="field">
-                      <label>父本编号</label>
-                      <input
-                        value={mouseForm.fatherId}
-                        onChange={(e) =>
-                          setMouseForm((prev) => ({
-                            ...prev,
-                            fatherId: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-
-                    <div className="field">
-                      <label>母本编号</label>
-                      <input
-                        value={mouseForm.motherId}
-                        onChange={(e) =>
-                          setMouseForm((prev) => ({
-                            ...prev,
-                            motherId: e.target.value,
-                          }))
-                        }
-                      />
-                    </div>
-
+                    <div className="field"><label>自定义来源</label><input value={mouseForm.sourceCustom} onChange={(e) => setMouseForm((prev) => ({ ...prev, sourceCustom: e.target.value }))} placeholder="选自定义后填写" /></div>
+                    <div className="field"><label>父本编号</label><input value={mouseForm.fatherId} onChange={(e) => setMouseForm((prev) => ({ ...prev, fatherId: e.target.value }))} /></div>
+                    <div className="field"><label>母本编号</label><input value={mouseForm.motherId} onChange={(e) => setMouseForm((prev) => ({ ...prev, motherId: e.target.value }))} /></div>
                     <div className="field">
                       <label>小鼠状态</label>
-                      <select
-                        value={mouseForm.mouseStatus}
-                        onChange={(e) =>
-                          setMouseForm((prev) => ({
-                            ...prev,
-                            mouseStatus: e.target.value,
-                          }))
-                        }
-                      >
+                      <select value={mouseForm.mouseStatus} onChange={(e) => setMouseForm((prev) => ({ ...prev, mouseStatus: e.target.value }))}>
                         <option value="在养">在养</option>
                         <option value="配对中">配对中</option>
                         <option value="待鉴定">待鉴定</option>
@@ -1459,76 +1051,32 @@ function App() {
                         <option value="淘汰/死亡">淘汰/死亡</option>
                       </select>
                     </div>
-
-                    <div className="field full">
-                      <label>备注</label>
-                      <textarea
-                        value={mouseForm.note}
-                        onChange={(e) =>
-                          setMouseForm((prev) => ({
-                            ...prev,
-                            note: e.target.value,
-                          }))
-                        }
-                        placeholder="可记录耳号、PCR、表型等"
-                      />
-                    </div>
+                    <div className="field full"><label>备注</label><textarea value={mouseForm.note} onChange={(e) => setMouseForm((prev) => ({ ...prev, note: e.target.value }))} placeholder="可记录耳号、PCR、表型等" /></div>
                   </div>
 
                   <div className="actions">
-                    <button className="btn-primary" onClick={saveMouse}>
-                      保存小鼠
-                    </button>
-                    <button className="btn-light" onClick={resetMouseForm}>
-                      清空
-                    </button>
-                    <button
-                      className="btn-light"
-                      onClick={duplicateCurrentMouseForm}
-                    >
-                      复制当前内容
-                    </button>
+                    <button className="btn-primary" onClick={saveMouse}>保存小鼠</button>
+                    <button className="btn-light" onClick={resetMouseForm}>清空</button>
+                    <button className="btn-light" onClick={duplicateCurrentMouseForm}>复制当前内容</button>
                   </div>
                 </div>
               )}
 
               <div className="card">
-                <div className="section-title">
-                  <h3>小鼠列表</h3>
-                  <small>按笼位查看更顺手</small>
-                </div>
+                <div className="section-title"><h3>小鼠列表</h3><small>按笼位查看更顺手</small></div>
 
                 <div className="filters filters-4">
-                  <div className="field">
-                    <label>搜索编号</label>
-                    <input
-                      value={mouseIdKeyword}
-                      onChange={(e) => setMouseIdKeyword(e.target.value)}
-                      placeholder="输入小鼠编号"
-                    />
-                  </div>
-
+                  <div className="field"><label>搜索编号</label><input value={mouseIdKeyword} onChange={(e) => setMouseIdKeyword(e.target.value)} placeholder="输入小鼠编号" /></div>
                   <div className="field">
                     <label>按基因型筛选</label>
-                    <select
-                      value={mouseGenotypeFilter}
-                      onChange={(e) => setMouseGenotypeFilter(e.target.value)}
-                    >
+                    <select value={mouseGenotypeFilter} onChange={(e) => setMouseGenotypeFilter(e.target.value)}>
                       <option value="">全部</option>
-                      {genotypePresets.map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
+                      {genotypePresets.map((item) => <option key={item} value={item}>{item}</option>)}
                     </select>
                   </div>
-
                   <div className="field">
                     <label>按来源筛选</label>
-                    <select
-                      value={mouseSourceFilter}
-                      onChange={(e) => setMouseSourceFilter(e.target.value)}
-                    >
+                    <select value={mouseSourceFilter} onChange={(e) => setMouseSourceFilter(e.target.value)}>
                       <option value="">全部</option>
                       <option value="本室繁殖">本室繁殖</option>
                       <option value="外购">外购</option>
@@ -1536,13 +1084,9 @@ function App() {
                       <option value="赠送">赠送</option>
                     </select>
                   </div>
-
                   <div className="field">
                     <label>按状态筛选</label>
-                    <select
-                      value={mouseStatusFilter}
-                      onChange={(e) => setMouseStatusFilter(e.target.value)}
-                    >
+                    <select value={mouseStatusFilter} onChange={(e) => setMouseStatusFilter(e.target.value)}>
                       <option value="">全部</option>
                       <option value="在养">在养</option>
                       <option value="配对中">配对中</option>
@@ -1557,90 +1101,34 @@ function App() {
                 <div className="table-wrap mt14">
                   <table>
                     <thead>
-                      <tr>
-                        <th>小鼠编号</th>
-                        <th>性别</th>
-                        <th>基因型</th>
-                        <th>出生日期</th>
-                        <th>年龄</th>
-                        <th>笼位</th>
-                        <th>来源</th>
-                        <th>小鼠状态</th>
-                        <th>备注</th>
-                        <th>操作</th>
-                      </tr>
+                      <tr><th>小鼠编号</th><th>性别</th><th>基因型</th><th>出生日期</th><th>年龄</th><th>笼位</th><th>来源</th><th>小鼠状态</th><th>备注</th><th>操作</th></tr>
                     </thead>
                     <tbody>
-                      {filteredMice.length ? (
-                        filteredMice.map((m) => {
-                          const cage = state.cages.find((c) => c.id === m.cageId)
-                          return (
-                            <tr key={m.id}>
-                              <td>{m.mouseId}</td>
-                              <td>
-                                <span
-                                  className={`sex-tag ${
-                                    m.sex === '♂'
-                                      ? 'sex-male'
-                                      : m.sex === '♀'
-                                      ? 'sex-female'
-                                      : ''
-                                  }`}
-                                >
-                                  {m.sex || '-'}
-                                </span>
-                              </td>
-                              <td>{m.genotype || '-'}</td>
-                              <td>{m.birthDate || '-'}</td>
-                              <td>{formatAge(m.birthDate)}</td>
-                              <td>{cage ? cage.cageNo : '-'}</td>
-                              <td>{m.source || '-'}</td>
-                              <td>
-                                <span
-                                  className={`tag ${getStatusClass(
-                                    m.mouseStatus
-                                  )}`}
-                                >
-                                  {m.mouseStatus || '-'}
-                                </span>
-                              </td>
-                              <td>{m.note || '-'}</td>
-                              <td>
-                                {!shareMode ? (
-                                  <div className="toolbar">
-                                    <button
-                                      className="btn-light"
-                                      onClick={() => editMouse(m.id)}
-                                    >
-                                      编辑
-                                    </button>
-                                    <button
-                                      className="btn-light"
-                                      onClick={() => duplicateMouse(m.id)}
-                                    >
-                                      复制
-                                    </button>
-                                    <button
-                                      className="btn-danger"
-                                      onClick={() => deleteMouse(m.id)}
-                                    >
-                                      删除
-                                    </button>
-                                  </div>
-                                ) : (
-                                  '-'
-                                )}
-                              </td>
-                            </tr>
-                          )
-                        })
-                      ) : (
-                        <tr>
-                          <td colSpan="10" className="empty">
-                            暂无符合条件的小鼠记录
-                          </td>
-                        </tr>
-                      )}
+                      {filteredMice.length ? filteredMice.map((m) => {
+                        const cage = state.cages.find((c) => c.id === m.cageId)
+                        return (
+                          <tr key={m.id}>
+                            <td>{m.mouseId}</td>
+                            <td><span className={`sex-tag ${m.sex === '♂' ? 'sex-male' : m.sex === '♀' ? 'sex-female' : ''}`}>{m.sex || '-'}</span></td>
+                            <td>{m.genotype || '-'}</td>
+                            <td>{m.birthDate || '-'}</td>
+                            <td>{formatAge(m.birthDate)}</td>
+                            <td>{cage ? cage.cageNo : '-'}</td>
+                            <td>{m.source || '-'}</td>
+                            <td><span className={`tag ${getStatusClass(m.mouseStatus)}`}>{m.mouseStatus || '-'}</span></td>
+                            <td>{m.note || '-'}</td>
+                            <td>
+                              {!shareMode ? (
+                                <div className="toolbar">
+                                  <button className="btn-light" onClick={() => editMouse(m.id)}>编辑</button>
+                                  <button className="btn-light" onClick={() => duplicateMouse(m.id)}>复制</button>
+                                  <button className="btn-danger" onClick={() => deleteMouse(m.id)}>删除</button>
+                                </div>
+                              ) : '-'}
+                            </td>
+                          </tr>
+                        )
+                      }) : <tr><td colSpan="10" className="empty">暂无符合条件的小鼠记录</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -1662,18 +1150,11 @@ function App() {
                   <h3>基因型预设</h3>
                   <div className="field">
                     <label>每行一个预设</label>
-                    <textarea
-                      value={presetEditor}
-                      onChange={(e) => setPresetEditor(e.target.value)}
-                    />
+                    <textarea value={presetEditor} onChange={(e) => setPresetEditor(e.target.value)} />
                   </div>
                   <div className="actions">
-                    <button className="btn-primary" onClick={saveGenotypePresets}>
-                      保存预设
-                    </button>
-                    <button className="btn-light" onClick={resetGenotypePresets}>
-                      恢复默认
-                    </button>
+                    <button className="btn-primary" onClick={saveGenotypePresets}>保存预设</button>
+                    <button className="btn-light" onClick={resetGenotypePresets}>恢复默认</button>
                   </div>
                 </div>
               )}
@@ -1681,43 +1162,37 @@ function App() {
               <div className="card">
                 <h3>数据备份与分享</h3>
                 <div className="toolbar">
-                  <button className="btn-primary" onClick={exportJSON}>
-                    导出 JSON
-                  </button>
+                  <button className="btn-primary" onClick={exportJSON}>导出 JSON</button>
 
                   {!shareMode && (
                     <label className="btn-light fake-file-btn">
                       导入 JSON
-                      <input
-                        type="file"
-                        accept=".json"
-                        onChange={importJSON}
-                        hidden
-                      />
+                      <input type="file" accept=".json" onChange={importJSON} hidden />
                     </label>
                   )}
 
                   {!shareMode && (
-                    <button className="btn-primary" onClick={generateShareLink}>
-                      生成分享链接
-                    </button>
+                    <>
+                      <button className="btn-primary" onClick={exportShareJSON}>导出分享 JSON</button>
+                      <button className="btn-light" onClick={copyShortLinkTemplate}>复制短链接模板</button>
+                    </>
                   )}
                 </div>
 
-                {(shareLink || shareMode) && (
+                {!shareMode && (
                   <div className="field" style={{ marginTop: '14px' }}>
-                    <label>分享链接</label>
+                    <label>短链接格式示例</label>
                     <textarea
                       readOnly
-                      value={shareLink || window.location.href}
-                      style={{ minHeight: '110px' }}
+                      value={`${window.location.origin}${window.location.pathname}?data=share-2026-03-29.json`}
+                      style={{ minHeight: '88px' }}
                     />
                   </div>
                 )}
 
                 {!shareMode && (
                   <p style={{ marginTop: '12px', color: '#6b7280', fontSize: '13px' }}>
-                    生成后的链接是当前数据快照。你之后改了数据，旧链接不会自动更新，需要重新生成。
+                    先导出分享 JSON，再把这个 JSON 上传到 GitHub 仓库里，然后把文件名替换进上面的短链接。
                   </p>
                 )}
               </div>
