@@ -91,6 +91,29 @@ function loadGenotypePresets() {
   }
 }
 
+function encodeShareData(data) {
+  const json = JSON.stringify(data)
+  const bytes = new TextEncoder().encode(json)
+  let binary = ''
+  bytes.forEach((b) => {
+    binary += String.fromCharCode(b)
+  })
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+}
+
+function decodeShareData(encoded) {
+  const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/')
+  const padded = base64 + '='.repeat((4 - (base64.length % 4 || 4)) % 4)
+  const binary = atob(padded)
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+  const json = new TextDecoder().decode(bytes)
+  const parsed = JSON.parse(json)
+  if (!parsed || !Array.isArray(parsed.cages) || !Array.isArray(parsed.mice)) {
+    throw new Error('invalid share data')
+  }
+  return parsed
+}
+
 function App() {
   const [page, setPage] = useState('dashboard')
   const [state, setState] = useState(defaultState)
@@ -101,6 +124,8 @@ function App() {
   const [editingCageId, setEditingCageId] = useState(null)
   const [editingMouseId, setEditingMouseId] = useState(null)
   const [selectedCageId, setSelectedCageId] = useState(null)
+  const [shareMode, setShareMode] = useState(false)
+  const [shareLink, setShareLink] = useState('')
 
   const [cageKeyword, setCageKeyword] = useState('')
   const [cageStatusFilter, setCageStatusFilter] = useState('')
@@ -135,19 +160,40 @@ function App() {
   const [presetEditor, setPresetEditor] = useState('')
 
   useEffect(() => {
-    setState(loadState())
     const presets = loadGenotypePresets()
     setGenotypePresets(presets)
     setPresetEditor(presets.join('\n'))
+
+    const params = new URLSearchParams(window.location.search)
+    const shared = params.get('share')
+
+    if (shared) {
+      try {
+        const sharedState = decodeShareData(shared)
+        setState(sharedState)
+        setShareMode(true)
+        setPage('dashboard')
+      } catch {
+        setState(loadState())
+        setShareMode(false)
+        setToast('分享链接解析失败，已加载本地数据')
+      }
+    } else {
+      setState(loadState())
+      setShareMode(false)
+    }
   }, [])
 
   useEffect(() => {
-    localStorage.setItem(NEW_STORAGE_KEY, JSON.stringify(state))
-  }, [state])
+    if (!shareMode) {
+      localStorage.setItem(NEW_STORAGE_KEY, JSON.stringify(state))
+    }
+  }, [state, shareMode])
 
   useEffect(() => {
+    if (!toast) return
     const timer = setTimeout(() => {
-      if (toast) setToast('')
+      setToast('')
     }, 2200)
     return () => clearTimeout(timer)
   }, [toast])
@@ -289,6 +335,7 @@ function App() {
   }
 
   function saveCage() {
+    if (shareMode) return
     if (!cageForm.cageNo.trim()) {
       showToast('请填写笼号')
       return
@@ -328,6 +375,7 @@ function App() {
   }
 
   function editCage(id) {
+    if (shareMode) return
     const cage = state.cages.find((c) => c.id === id)
     if (!cage) return
     setEditingCageId(id)
@@ -343,6 +391,7 @@ function App() {
   }
 
   function deleteCage(id) {
+    if (shareMode) return
     if (state.mice.some((m) => m.cageId === id)) {
       showToast('这个笼里还有小鼠，不能直接删除')
       return
@@ -385,6 +434,8 @@ function App() {
   }
 
   function saveMouse() {
+    if (shareMode) return
+
     const data = {
       mouseId: mouseForm.mouseId.trim(),
       sex: mouseForm.sex,
@@ -434,6 +485,7 @@ function App() {
   }
 
   function editMouse(id) {
+    if (shareMode) return
     const m = state.mice.find((x) => x.id === id)
     if (!m) return
 
@@ -460,6 +512,7 @@ function App() {
   }
 
   function deleteMouse(id) {
+    if (shareMode) return
     if (!window.confirm('确定删除这条小鼠记录吗？')) return
     setState((prev) => ({
       ...prev,
@@ -469,6 +522,7 @@ function App() {
   }
 
   function duplicateCurrentMouseForm() {
+    if (shareMode) return
     if (
       !mouseForm.mouseId &&
       !resolvedGenotype() &&
@@ -487,6 +541,7 @@ function App() {
   }
 
   function duplicateMouse(id) {
+    if (shareMode) return
     const m = state.mice.find((x) => x.id === id)
     if (!m) return
     editMouse(id)
@@ -501,6 +556,7 @@ function App() {
   }
 
   function saveGenotypePresets() {
+    if (shareMode) return
     const presets = presetEditor
       .split(/\r?\n/)
       .map((x) => x.trim())
@@ -516,6 +572,7 @@ function App() {
   }
 
   function resetGenotypePresets() {
+    if (shareMode) return
     localStorage.setItem(
       GENOTYPE_PRESET_KEY,
       JSON.stringify(DEFAULT_GENOTYPE_PRESETS)
@@ -539,6 +596,7 @@ function App() {
   }
 
   function importJSON(event) {
+    if (shareMode) return
     const file = event.target.files?.[0]
     if (!file) return
     const reader = new FileReader()
@@ -556,6 +614,37 @@ function App() {
     reader.readAsText(file, 'utf-8')
   }
 
+  async function generateShareLink() {
+    try {
+      const encoded = encodeShareData(state)
+      const url = new URL(window.location.href)
+      url.searchParams.set('share', encoded)
+      const finalLink = url.toString()
+      setShareLink(finalLink)
+
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(finalLink)
+        showToast('分享链接已复制')
+      } else {
+        showToast('分享链接已生成')
+      }
+    } catch {
+      showToast('生成分享链接失败')
+    }
+  }
+
+  function saveSharedDataToLocal() {
+    if (!shareMode) return
+    localStorage.setItem(NEW_STORAGE_KEY, JSON.stringify(state))
+    showToast('已保存到当前浏览器')
+  }
+
+  function exitShareMode() {
+    const url = new URL(window.location.href)
+    url.searchParams.delete('share')
+    window.location.href = url.toString()
+  }
+
   return (
     <div className="app">
       <aside className="sidebar">
@@ -563,7 +652,7 @@ function App() {
           <div className="brand-icon">🐭</div>
           <div>
             <h1>笼位管理系统</h1>
-            <small>网页版</small>
+            <small>{shareMode ? '分享只读模式' : '网页版'}</small>
           </div>
         </div>
 
@@ -596,6 +685,35 @@ function App() {
       </aside>
 
       <main className="main">
+        {shareMode && (
+          <div
+            style={{
+              marginBottom: '16px',
+              padding: '14px 16px',
+              background: '#fff7ed',
+              border: '1px solid #fdba74',
+              borderRadius: '16px',
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '10px',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+            }}
+          >
+            <div style={{ fontSize: '14px', color: '#9a3412', fontWeight: 700 }}>
+              当前是分享只读模式。你看到的是别人分享给你的数据快照。
+            </div>
+            <div className="toolbar">
+              <button className="btn-light" onClick={saveSharedDataToLocal}>
+                保存到我的浏览器
+              </button>
+              <button className="btn-light" onClick={exitShareMode}>
+                退出分享模式
+              </button>
+            </div>
+          </div>
+        )}
+
         {page === 'dashboard' && (
           <section className="page active">
             <div className="topbar">
@@ -796,104 +914,106 @@ function App() {
             </div>
 
             <div className="stack">
-              <div className="card">
-                <div className="section-title">
-                  <h3>{editingCageId ? '编辑笼位' : '新增笼位'}</h3>
-                  <small>笼名和备注可自由编辑</small>
+              {!shareMode && (
+                <div className="card">
+                  <div className="section-title">
+                    <h3>{editingCageId ? '编辑笼位' : '新增笼位'}</h3>
+                    <small>笼名和备注可自由编辑</small>
+                  </div>
+
+                  <div className="form-grid">
+                    <div className="field">
+                      <label>笼号</label>
+                      <input
+                        value={cageForm.cageNo}
+                        onChange={(e) =>
+                          setCageForm((prev) => ({
+                            ...prev,
+                            cageNo: e.target.value,
+                          }))
+                        }
+                        placeholder="如 1 / A01"
+                      />
+                    </div>
+
+                    <div className="field">
+                      <label>笼名</label>
+                      <input
+                        value={cageForm.cageName}
+                        onChange={(e) =>
+                          setCageForm((prev) => ({
+                            ...prev,
+                            cageName: e.target.value,
+                          }))
+                        }
+                        placeholder="如 Snapin繁殖1笼"
+                      />
+                    </div>
+
+                    <div className="field">
+                      <label>笼类型</label>
+                      <select
+                        value={cageForm.cageType}
+                        onChange={(e) =>
+                          setCageForm((prev) => ({
+                            ...prev,
+                            cageType: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="繁殖笼">繁殖笼</option>
+                        <option value="成鼠笼">成鼠笼</option>
+                        <option value="幼鼠笼">幼鼠笼</option>
+                        <option value="暂养笼">暂养笼</option>
+                        <option value="观察笼">观察笼</option>
+                      </select>
+                    </div>
+
+                    <div className="field">
+                      <label>笼位状态</label>
+                      <select
+                        value={cageForm.cageStatus}
+                        onChange={(e) =>
+                          setCageForm((prev) => ({
+                            ...prev,
+                            cageStatus: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="正常">正常</option>
+                        <option value="配对中">配对中</option>
+                        <option value="哺乳中">哺乳中</option>
+                        <option value="待剪尾">待剪尾</option>
+                        <option value="待结果">待结果</option>
+                        <option value="已分笼">已分笼</option>
+                      </select>
+                    </div>
+
+                    <div className="field full">
+                      <label>备注</label>
+                      <textarea
+                        value={cageForm.note}
+                        onChange={(e) =>
+                          setCageForm((prev) => ({
+                            ...prev,
+                            note: e.target.value,
+                          }))
+                        }
+                        placeholder="例如：3月10日合笼；4月2日产仔；待PCR"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="actions">
+                    <button className="btn-primary" onClick={saveCage}>
+                      保存笼位
+                    </button>
+                    <button className="btn-light" onClick={resetCageForm}>
+                      清空
+                    </button>
+                  </div>
                 </div>
-
-                <div className="form-grid">
-                  <div className="field">
-                    <label>笼号</label>
-                    <input
-                      value={cageForm.cageNo}
-                      onChange={(e) =>
-                        setCageForm((prev) => ({
-                          ...prev,
-                          cageNo: e.target.value,
-                        }))
-                      }
-                      placeholder="如 1 / A01"
-                    />
-                  </div>
-
-                  <div className="field">
-                    <label>笼名</label>
-                    <input
-                      value={cageForm.cageName}
-                      onChange={(e) =>
-                        setCageForm((prev) => ({
-                          ...prev,
-                          cageName: e.target.value,
-                        }))
-                      }
-                      placeholder="如 Snapin繁殖1笼"
-                    />
-                  </div>
-
-                  <div className="field">
-                    <label>笼类型</label>
-                    <select
-                      value={cageForm.cageType}
-                      onChange={(e) =>
-                        setCageForm((prev) => ({
-                          ...prev,
-                          cageType: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="繁殖笼">繁殖笼</option>
-                      <option value="成鼠笼">成鼠笼</option>
-                      <option value="幼鼠笼">幼鼠笼</option>
-                      <option value="暂养笼">暂养笼</option>
-                      <option value="观察笼">观察笼</option>
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label>笼位状态</label>
-                    <select
-                      value={cageForm.cageStatus}
-                      onChange={(e) =>
-                        setCageForm((prev) => ({
-                          ...prev,
-                          cageStatus: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="正常">正常</option>
-                      <option value="配对中">配对中</option>
-                      <option value="哺乳中">哺乳中</option>
-                      <option value="待剪尾">待剪尾</option>
-                      <option value="待结果">待结果</option>
-                      <option value="已分笼">已分笼</option>
-                    </select>
-                  </div>
-
-                  <div className="field full">
-                    <label>备注</label>
-                    <textarea
-                      value={cageForm.note}
-                      onChange={(e) =>
-                        setCageForm((prev) => ({
-                          ...prev,
-                          note: e.target.value,
-                        }))
-                      }
-                      placeholder="例如：3月10日合笼；4月2日产仔；待PCR"
-                    />
-                  </div>
-                </div>
-
-                <div className="actions">
-                  <button className="btn-primary" onClick={saveCage}>
-                    保存笼位
-                  </button>
-                  <button className="btn-light" onClick={resetCageForm}>
-                    清空
-                  </button>
-                </div>
-              </div>
+              )}
 
               <div className="card">
                 <div className="section-title">
@@ -998,18 +1118,22 @@ function App() {
                             >
                               查看详情
                             </button>
-                            <button
-                              className="btn-light"
-                              onClick={() => editCage(c.id)}
-                            >
-                              编辑
-                            </button>
-                            <button
-                              className="btn-danger"
-                              onClick={() => deleteCage(c.id)}
-                            >
-                              删除
-                            </button>
+                            {!shareMode && (
+                              <>
+                                <button
+                                  className="btn-light"
+                                  onClick={() => editCage(c.id)}
+                                >
+                                  编辑
+                                </button>
+                                <button
+                                  className="btn-danger"
+                                  onClick={() => deleteCage(c.id)}
+                                >
+                                  删除
+                                </button>
+                              </>
+                            )}
                           </div>
                         </div>
                       )
@@ -1140,231 +1264,233 @@ function App() {
             </div>
 
             <div className="stack">
-              <div className="card">
-                <div className="section-title">
-                  <h3>{editingMouseId ? '编辑小鼠' : '新增小鼠'}</h3>
-                  <small>基因型和来源支持选择或自定义</small>
+              {!shareMode && (
+                <div className="card">
+                  <div className="section-title">
+                    <h3>{editingMouseId ? '编辑小鼠' : '新增小鼠'}</h3>
+                    <small>基因型和来源支持选择或自定义</small>
+                  </div>
+
+                  <div className="form-grid">
+                    <div className="field">
+                      <label>小鼠编号</label>
+                      <input
+                        value={mouseForm.mouseId}
+                        onChange={(e) =>
+                          setMouseForm((prev) => ({
+                            ...prev,
+                            mouseId: e.target.value,
+                          }))
+                        }
+                        placeholder="如 M001"
+                      />
+                    </div>
+
+                    <div className="field">
+                      <label>性别</label>
+                      <select
+                        value={mouseForm.sex}
+                        onChange={(e) =>
+                          setMouseForm((prev) => ({
+                            ...prev,
+                            sex: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">请选择</option>
+                        <option value="♂">♂</option>
+                        <option value="♀">♀</option>
+                      </select>
+                    </div>
+
+                    <div className="field">
+                      <label>基因型</label>
+                      <select
+                        value={mouseForm.genotypeSelect}
+                        onChange={(e) =>
+                          setMouseForm((prev) => ({
+                            ...prev,
+                            genotypeSelect: e.target.value,
+                            genotypeCustom:
+                              e.target.value && e.target.value !== 'custom'
+                                ? e.target.value
+                                : prev.genotypeCustom,
+                          }))
+                        }
+                      >
+                        <option value="">请选择</option>
+                        {genotypePresets.map((item) => (
+                          <option key={item} value={item}>
+                            {item}
+                          </option>
+                        ))}
+                        <option value="custom">自定义</option>
+                      </select>
+                    </div>
+
+                    <div className="field">
+                      <label>自定义基因型</label>
+                      <input
+                        value={mouseForm.genotypeCustom}
+                        onChange={(e) =>
+                          setMouseForm((prev) => ({
+                            ...prev,
+                            genotypeCustom: e.target.value,
+                          }))
+                        }
+                        placeholder="选自定义后填写"
+                      />
+                    </div>
+
+                    <div className="field">
+                      <label>出生日期</label>
+                      <input
+                        type="date"
+                        value={mouseForm.birthDate}
+                        onChange={(e) =>
+                          setMouseForm((prev) => ({
+                            ...prev,
+                            birthDate: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="field">
+                      <label>当前笼位</label>
+                      <select
+                        value={mouseForm.cageId}
+                        onChange={(e) =>
+                          setMouseForm((prev) => ({
+                            ...prev,
+                            cageId: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="">请选择笼位</option>
+                        {cagesSorted.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.cageNo}｜{c.cageName || ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="field">
+                      <label>来源</label>
+                      <select
+                        value={mouseForm.sourceSelect}
+                        onChange={(e) =>
+                          setMouseForm((prev) => ({
+                            ...prev,
+                            sourceSelect: e.target.value,
+                            sourceCustom:
+                              e.target.value && e.target.value !== 'custom'
+                                ? e.target.value
+                                : prev.sourceCustom,
+                          }))
+                        }
+                      >
+                        <option value="">请选择</option>
+                        <option value="本室繁殖">本室繁殖</option>
+                        <option value="外购">外购</option>
+                        <option value="合作课题">合作课题</option>
+                        <option value="赠送">赠送</option>
+                        <option value="custom">自定义</option>
+                      </select>
+                    </div>
+
+                    <div className="field">
+                      <label>自定义来源</label>
+                      <input
+                        value={mouseForm.sourceCustom}
+                        onChange={(e) =>
+                          setMouseForm((prev) => ({
+                            ...prev,
+                            sourceCustom: e.target.value,
+                          }))
+                        }
+                        placeholder="选自定义后填写"
+                      />
+                    </div>
+
+                    <div className="field">
+                      <label>父本编号</label>
+                      <input
+                        value={mouseForm.fatherId}
+                        onChange={(e) =>
+                          setMouseForm((prev) => ({
+                            ...prev,
+                            fatherId: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="field">
+                      <label>母本编号</label>
+                      <input
+                        value={mouseForm.motherId}
+                        onChange={(e) =>
+                          setMouseForm((prev) => ({
+                            ...prev,
+                            motherId: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="field">
+                      <label>小鼠状态</label>
+                      <select
+                        value={mouseForm.mouseStatus}
+                        onChange={(e) =>
+                          setMouseForm((prev) => ({
+                            ...prev,
+                            mouseStatus: e.target.value,
+                          }))
+                        }
+                      >
+                        <option value="在养">在养</option>
+                        <option value="配对中">配对中</option>
+                        <option value="待鉴定">待鉴定</option>
+                        <option value="保留">保留</option>
+                        <option value="已取材">已取材</option>
+                        <option value="淘汰/死亡">淘汰/死亡</option>
+                      </select>
+                    </div>
+
+                    <div className="field full">
+                      <label>备注</label>
+                      <textarea
+                        value={mouseForm.note}
+                        onChange={(e) =>
+                          setMouseForm((prev) => ({
+                            ...prev,
+                            note: e.target.value,
+                          }))
+                        }
+                        placeholder="可记录耳号、PCR、表型等"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="actions">
+                    <button className="btn-primary" onClick={saveMouse}>
+                      保存小鼠
+                    </button>
+                    <button className="btn-light" onClick={resetMouseForm}>
+                      清空
+                    </button>
+                    <button
+                      className="btn-light"
+                      onClick={duplicateCurrentMouseForm}
+                    >
+                      复制当前内容
+                    </button>
+                  </div>
                 </div>
-
-                <div className="form-grid">
-                  <div className="field">
-                    <label>小鼠编号</label>
-                    <input
-                      value={mouseForm.mouseId}
-                      onChange={(e) =>
-                        setMouseForm((prev) => ({
-                          ...prev,
-                          mouseId: e.target.value,
-                        }))
-                      }
-                      placeholder="如 M001"
-                    />
-                  </div>
-
-                  <div className="field">
-                    <label>性别</label>
-                    <select
-                      value={mouseForm.sex}
-                      onChange={(e) =>
-                        setMouseForm((prev) => ({
-                          ...prev,
-                          sex: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">请选择</option>
-                      <option value="♂">♂</option>
-                      <option value="♀">♀</option>
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label>基因型</label>
-                    <select
-                      value={mouseForm.genotypeSelect}
-                      onChange={(e) =>
-                        setMouseForm((prev) => ({
-                          ...prev,
-                          genotypeSelect: e.target.value,
-                          genotypeCustom:
-                            e.target.value && e.target.value !== 'custom'
-                              ? e.target.value
-                              : prev.genotypeCustom,
-                        }))
-                      }
-                    >
-                      <option value="">请选择</option>
-                      {genotypePresets.map((item) => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
-                      <option value="custom">自定义</option>
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label>自定义基因型</label>
-                    <input
-                      value={mouseForm.genotypeCustom}
-                      onChange={(e) =>
-                        setMouseForm((prev) => ({
-                          ...prev,
-                          genotypeCustom: e.target.value,
-                        }))
-                      }
-                      placeholder="选自定义后填写"
-                    />
-                  </div>
-
-                  <div className="field">
-                    <label>出生日期</label>
-                    <input
-                      type="date"
-                      value={mouseForm.birthDate}
-                      onChange={(e) =>
-                        setMouseForm((prev) => ({
-                          ...prev,
-                          birthDate: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-
-                  <div className="field">
-                    <label>当前笼位</label>
-                    <select
-                      value={mouseForm.cageId}
-                      onChange={(e) =>
-                        setMouseForm((prev) => ({
-                          ...prev,
-                          cageId: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">请选择笼位</option>
-                      {cagesSorted.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.cageNo}｜{c.cageName || ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label>来源</label>
-                    <select
-                      value={mouseForm.sourceSelect}
-                      onChange={(e) =>
-                        setMouseForm((prev) => ({
-                          ...prev,
-                          sourceSelect: e.target.value,
-                          sourceCustom:
-                            e.target.value && e.target.value !== 'custom'
-                              ? e.target.value
-                              : prev.sourceCustom,
-                        }))
-                      }
-                    >
-                      <option value="">请选择</option>
-                      <option value="本室繁殖">本室繁殖</option>
-                      <option value="外购">外购</option>
-                      <option value="合作课题">合作课题</option>
-                      <option value="赠送">赠送</option>
-                      <option value="custom">自定义</option>
-                    </select>
-                  </div>
-
-                  <div className="field">
-                    <label>自定义来源</label>
-                    <input
-                      value={mouseForm.sourceCustom}
-                      onChange={(e) =>
-                        setMouseForm((prev) => ({
-                          ...prev,
-                          sourceCustom: e.target.value,
-                        }))
-                      }
-                      placeholder="选自定义后填写"
-                    />
-                  </div>
-
-                  <div className="field">
-                    <label>父本编号</label>
-                    <input
-                      value={mouseForm.fatherId}
-                      onChange={(e) =>
-                        setMouseForm((prev) => ({
-                          ...prev,
-                          fatherId: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-
-                  <div className="field">
-                    <label>母本编号</label>
-                    <input
-                      value={mouseForm.motherId}
-                      onChange={(e) =>
-                        setMouseForm((prev) => ({
-                          ...prev,
-                          motherId: e.target.value,
-                        }))
-                      }
-                    />
-                  </div>
-
-                  <div className="field">
-                    <label>小鼠状态</label>
-                    <select
-                      value={mouseForm.mouseStatus}
-                      onChange={(e) =>
-                        setMouseForm((prev) => ({
-                          ...prev,
-                          mouseStatus: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="在养">在养</option>
-                      <option value="配对中">配对中</option>
-                      <option value="待鉴定">待鉴定</option>
-                      <option value="保留">保留</option>
-                      <option value="已取材">已取材</option>
-                      <option value="淘汰/死亡">淘汰/死亡</option>
-                    </select>
-                  </div>
-
-                  <div className="field full">
-                    <label>备注</label>
-                    <textarea
-                      value={mouseForm.note}
-                      onChange={(e) =>
-                        setMouseForm((prev) => ({
-                          ...prev,
-                          note: e.target.value,
-                        }))
-                      }
-                      placeholder="可记录耳号、PCR、表型等"
-                    />
-                  </div>
-                </div>
-
-                <div className="actions">
-                  <button className="btn-primary" onClick={saveMouse}>
-                    保存小鼠
-                  </button>
-                  <button className="btn-light" onClick={resetMouseForm}>
-                    清空
-                  </button>
-                  <button
-                    className="btn-light"
-                    onClick={duplicateCurrentMouseForm}
-                  >
-                    复制当前内容
-                  </button>
-                </div>
-              </div>
+              )}
 
               <div className="card">
                 <div className="section-title">
@@ -1480,26 +1606,30 @@ function App() {
                               </td>
                               <td>{m.note || '-'}</td>
                               <td>
-                                <div className="toolbar">
-                                  <button
-                                    className="btn-light"
-                                    onClick={() => editMouse(m.id)}
-                                  >
-                                    编辑
-                                  </button>
-                                  <button
-                                    className="btn-light"
-                                    onClick={() => duplicateMouse(m.id)}
-                                  >
-                                    复制
-                                  </button>
-                                  <button
-                                    className="btn-danger"
-                                    onClick={() => deleteMouse(m.id)}
-                                  >
-                                    删除
-                                  </button>
-                                </div>
+                                {!shareMode ? (
+                                  <div className="toolbar">
+                                    <button
+                                      className="btn-light"
+                                      onClick={() => editMouse(m.id)}
+                                    >
+                                      编辑
+                                    </button>
+                                    <button
+                                      className="btn-light"
+                                      onClick={() => duplicateMouse(m.id)}
+                                    >
+                                      复制
+                                    </button>
+                                    <button
+                                      className="btn-danger"
+                                      onClick={() => deleteMouse(m.id)}
+                                    >
+                                      删除
+                                    </button>
+                                  </div>
+                                ) : (
+                                  '-'
+                                )}
                               </td>
                             </tr>
                           )
@@ -1523,45 +1653,73 @@ function App() {
           <section className="page active">
             <div className="topbar">
               <h2>导入导出</h2>
-              <p>建议你定期备份 JSON。</p>
+              <p>{shareMode ? '当前为分享只读模式。' : '建议你定期备份 JSON。'}</p>
             </div>
 
             <div className="stack">
-              <div className="card">
-                <h3>基因型预设</h3>
-                <div className="field">
-                  <label>每行一个预设</label>
-                  <textarea
-                    value={presetEditor}
-                    onChange={(e) => setPresetEditor(e.target.value)}
-                  />
+              {!shareMode && (
+                <div className="card">
+                  <h3>基因型预设</h3>
+                  <div className="field">
+                    <label>每行一个预设</label>
+                    <textarea
+                      value={presetEditor}
+                      onChange={(e) => setPresetEditor(e.target.value)}
+                    />
+                  </div>
+                  <div className="actions">
+                    <button className="btn-primary" onClick={saveGenotypePresets}>
+                      保存预设
+                    </button>
+                    <button className="btn-light" onClick={resetGenotypePresets}>
+                      恢复默认
+                    </button>
+                  </div>
                 </div>
-                <div className="actions">
-                  <button className="btn-primary" onClick={saveGenotypePresets}>
-                    保存预设
-                  </button>
-                  <button className="btn-light" onClick={resetGenotypePresets}>
-                    恢复默认
-                  </button>
-                </div>
-              </div>
+              )}
 
               <div className="card">
-                <h3>数据备份</h3>
+                <h3>数据备份与分享</h3>
                 <div className="toolbar">
                   <button className="btn-primary" onClick={exportJSON}>
                     导出 JSON
                   </button>
-                  <label className="btn-light fake-file-btn">
-                    导入 JSON
-                    <input
-                      type="file"
-                      accept=".json"
-                      onChange={importJSON}
-                      hidden
-                    />
-                  </label>
+
+                  {!shareMode && (
+                    <label className="btn-light fake-file-btn">
+                      导入 JSON
+                      <input
+                        type="file"
+                        accept=".json"
+                        onChange={importJSON}
+                        hidden
+                      />
+                    </label>
+                  )}
+
+                  {!shareMode && (
+                    <button className="btn-primary" onClick={generateShareLink}>
+                      生成分享链接
+                    </button>
+                  )}
                 </div>
+
+                {(shareLink || shareMode) && (
+                  <div className="field" style={{ marginTop: '14px' }}>
+                    <label>分享链接</label>
+                    <textarea
+                      readOnly
+                      value={shareLink || window.location.href}
+                      style={{ minHeight: '110px' }}
+                    />
+                  </div>
+                )}
+
+                {!shareMode && (
+                  <p style={{ marginTop: '12px', color: '#6b7280', fontSize: '13px' }}>
+                    生成后的链接是当前数据快照。你之后改了数据，旧链接不会自动更新，需要重新生成。
+                  </p>
+                )}
               </div>
             </div>
           </section>
