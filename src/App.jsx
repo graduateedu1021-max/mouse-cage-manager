@@ -47,8 +47,9 @@ function formatAge(birthDate) {
 
 function getStatusClass(status) {
   if (['正常', '在养', '保留'].includes(status)) return 'green'
-  if (['配对中', '哺乳中', '待鉴定', '待剪尾', '待结果'].includes(status))
+  if (['配对中', '哺乳中', '待鉴定', '待剪尾', '待结果'].includes(status)) {
     return 'orange'
+  }
   if (['已取材', '淘汰/死亡', '已分笼'].includes(status)) return 'red'
   return ''
 }
@@ -240,10 +241,7 @@ function App() {
     }
   }, [state.mice])
 
-  const genotypeRows = useMemo(
-    () => countBy(state.mice, 'genotype'),
-    [state.mice]
-  )
+  const genotypeRows = useMemo(() => countBy(state.mice, 'genotype'), [state.mice])
 
   const genotypeSexRows = useMemo(() => {
     const map = new Map()
@@ -528,8 +526,6 @@ function App() {
 
   function duplicateMouse(id) {
     if (shareMode) return
-    const m = state.mice.find((x) => x.id === id)
-    if (!m) return
     editMouse(id)
     setEditingMouseId(null)
     setTimeout(() => {
@@ -597,6 +593,120 @@ function App() {
     a.click()
     setTimeout(() => URL.revokeObjectURL(url), 500)
     showToast('已导出分享 JSON')
+  }
+
+  function exportPrintableTable() {
+    const cageMap = new Map(state.cages.map((c) => [c.id, c]))
+
+    const grouped = [...state.mice].sort((a, b) => {
+      const cageA = cageMap.get(a.cageId)?.cageNo || ''
+      const cageB = cageMap.get(b.cageId)?.cageNo || ''
+      if (cageA !== cageB) {
+        return cageA.localeCompare(cageB, 'zh-CN', { numeric: true })
+      }
+      return String(a.mouseId).localeCompare(String(b.mouseId), 'zh-CN', {
+        numeric: true,
+      })
+    })
+
+    const rows = grouped
+      .map((m) => {
+        const cage = cageMap.get(m.cageId)
+        return `
+          <tr>
+            <td>${cage?.cageNo || '-'}</td>
+            <td>${m.mouseId || '-'}</td>
+            <td>${m.sex || '-'}</td>
+            <td>${m.genotype || '-'}</td>
+            <td>${m.note || ''}</td>
+          </tr>
+        `
+      })
+      .join('')
+
+    const now = new Date()
+    const dateText = `${now.getFullYear()}-${String(
+      now.getMonth() + 1
+    ).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="zh-CN">
+      <head>
+        <meta charset="UTF-8" />
+        <title>基因小鼠笼位打印表</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+            margin: 24px;
+            color: #111;
+          }
+          h1 {
+            text-align: center;
+            margin: 0 0 8px;
+            font-size: 24px;
+          }
+          .sub {
+            text-align: center;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #444;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+          }
+          th, td {
+            border: 1px solid #333;
+            padding: 8px 10px;
+            font-size: 14px;
+            text-align: center;
+            word-break: break-word;
+          }
+          th {
+            background: #f3f4f6;
+            font-weight: 700;
+          }
+          @media print {
+            body {
+              margin: 12mm;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <h1>基因小鼠笼位打印表</h1>
+        <div class="sub">导出日期：${dateText}</div>
+        <table>
+          <thead>
+            <tr>
+              <th>笼位</th>
+              <th>小鼠编号</th>
+              <th>性别</th>
+              <th>基因型</th>
+              <th>备注</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="5">暂无数据</td></tr>'}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `
+
+    const printWindow = window.open('', '_blank')
+    if (!printWindow) {
+      showToast('打印窗口打开失败')
+      return
+    }
+
+    printWindow.document.open()
+    printWindow.document.write(html)
+    printWindow.document.close()
+    printWindow.focus()
+    printWindow.print()
   }
 
   function importJSON(event) {
@@ -762,9 +872,7 @@ function App() {
                         {genotypeSexRows.length ? genotypeSexRows.map(([g, s, v], idx) => (
                           <tr key={`${g}-${s}-${idx}`}>
                             <td>{g}</td>
-                            <td>
-                              <span className={`sex-tag ${s === '♂' ? 'sex-male' : s === '♀' ? 'sex-female' : ''}`}>{s}</span>
-                            </td>
+                            <td><span className={`sex-tag ${s === '♂' ? 'sex-male' : s === '♀' ? 'sex-female' : ''}`}>{s}</span></td>
                             <td>{v}</td>
                           </tr>
                         )) : <tr><td colSpan="3" className="empty">暂无统计数据</td></tr>}
@@ -999,7 +1107,10 @@ function App() {
                           setMouseForm((prev) => ({
                             ...prev,
                             genotypeSelect: e.target.value,
-                            genotypeCustom: e.target.value && e.target.value !== 'custom' ? e.target.value : prev.genotypeCustom,
+                            genotypeCustom:
+                              e.target.value && e.target.value !== 'custom'
+                                ? e.target.value
+                                : prev.genotypeCustom,
                           }))
                         }
                       >
@@ -1025,7 +1136,10 @@ function App() {
                           setMouseForm((prev) => ({
                             ...prev,
                             sourceSelect: e.target.value,
-                            sourceCustom: e.target.value && e.target.value !== 'custom' ? e.target.value : prev.sourceCustom,
+                            sourceCustom:
+                              e.target.value && e.target.value !== 'custom'
+                                ? e.target.value
+                                : prev.sourceCustom,
                           }))
                         }
                       >
@@ -1163,6 +1277,7 @@ function App() {
                 <h3>数据备份与分享</h3>
                 <div className="toolbar">
                   <button className="btn-primary" onClick={exportJSON}>导出 JSON</button>
+                  <button className="btn-primary" onClick={exportPrintableTable}>导出打印表</button>
 
                   {!shareMode && (
                     <label className="btn-light fake-file-btn">
@@ -1192,7 +1307,7 @@ function App() {
 
                 {!shareMode && (
                   <p style={{ marginTop: '12px', color: '#6b7280', fontSize: '13px' }}>
-                    先导出分享 JSON，再把这个 JSON 上传到 GitHub 仓库里，然后把文件名替换进上面的短链接。
+                    先导出分享 JSON，再把这个 JSON 上传到 GitHub 仓库的 public 目录，然后把文件名替换进上面的短链接。
                   </p>
                 )}
               </div>
