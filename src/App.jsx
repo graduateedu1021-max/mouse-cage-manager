@@ -610,18 +610,19 @@ function App() {
     })
 
     const rows = grouped
-      .map((m) => {
-        const cage = cageMap.get(m.cageId)
-        return `
-          <tr>
-            <td>${cage?.cageNo || '-'}</td>
-            <td>${m.mouseId || '-'}</td>
-            <td>${m.sex || '-'}</td>
-            <td>${m.genotype || '-'}</td>
-            <td>${m.note || ''}</td>
-          </tr>
-        `
-      })
+    .map((m) => {
+  const cage = cageMap.get(m.cageId)
+  const noteText = [m.note, cage?.note].filter(Boolean).join('；')
+  return `
+    <tr>
+      <td>${cage?.cageNo || '-'}</td>
+      <td>${m.mouseId || '-'}</td>
+      <td>${m.sex || '-'}</td>
+      <td>${m.genotype || '-'}</td>
+      <td>${noteText}</td>
+    </tr>
+  `
+})
       .join('')
 
     const now = new Date()
