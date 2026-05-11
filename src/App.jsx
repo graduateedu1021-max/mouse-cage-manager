@@ -595,7 +595,7 @@ function App() {
     showToast('已导出分享 JSON')
   }
 
- function exportPrintableTable() {
+function exportPrintableTable() {
   const cageMap = new Map(state.cages.map((c) => [c.id, c]))
 
   const grouped = [...state.mice].sort((a, b) => {
@@ -727,7 +727,6 @@ function App() {
   printWindow.focus()
   printWindow.print()
 }
-
   function importJSON(event) {
     if (shareMode) return
     const file = event.target.files?.[0]
