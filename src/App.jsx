@@ -652,7 +652,7 @@ function exportPrintableTable() {
     <html lang="zh-CN">
     <head>
       <meta charset="UTF-8" />
-      <title>基因小鼠笼位打印表</title>
+      <title>基因小鼠笼位打印表-${dateText}</title>
       <style>
         body {
           font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -726,6 +726,7 @@ function exportPrintableTable() {
   printWindow.document.open()
   printWindow.document.write(html)
   printWindow.document.close()
+  printWindow.document.title = `基因小鼠笼位打印表-${dateText}`
   printWindow.focus()
   printWindow.print()
 }
