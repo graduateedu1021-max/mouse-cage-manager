@@ -630,6 +630,7 @@ function exportPrintableTable() {
           <td>${m.mouseId || '-'}</td>
           <td>${m.sex || '-'}</td>
           <td>${m.genotype || '-'}</td>
+          <td>${formatAge(m.birthDate)}</td>
           <td>${m.note || ''}</td>
           ${
             isFirstRowOfCage
@@ -703,12 +704,13 @@ function exportPrintableTable() {
             <th>小鼠编号</th>
             <th>性别</th>
             <th>基因型</th>
+            <th>年龄</th>
             <th>小鼠备注</th>
             <th>笼位备注</th>
           </tr>
         </thead>
         <tbody>
-          ${rows || '<tr><td colspan="6">暂无数据</td></tr>'}
+          ${rows || '<tr><td colspan="7">暂无数据</td></tr>'}
         </tbody>
       </table>
     </body>
