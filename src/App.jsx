@@ -45,6 +45,15 @@ function formatAge(birthDate) {
   return weeks ? `${months}月${weeks}周` : `${months}月`
 }
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
 
 function loadExternalScript(src, globalName) {
   if (window[globalName]) return Promise.resolve()
@@ -647,15 +656,15 @@ async function exportPrintableTable() {
 
       return `
         <tr>
-          <td>${cage?.cageNo || '-'}</td>
-          <td>${m.mouseId || '-'}</td>
-          <td>${m.sex || '-'}</td>
-          <td>${m.genotype || '-'}</td>
-          <td>${formatAge(m.birthDate)}</td>
-          <td>${m.note || ''}</td>
+          <td>${escapeHtml(cage?.cageNo || '-')}</td>
+          <td>${escapeHtml(m.mouseId || '-')}</td>
+          <td>${escapeHtml(m.sex || '-')}</td>
+          <td>${escapeHtml(m.genotype || '-')}</td>
+          <td>${escapeHtml(formatAge(m.birthDate))}</td>
+          <td>${escapeHtml(m.note || '')}</td>
           ${
             isFirstRowOfCage
-              ? `<td rowspan="${cageRowCountMap.get(cageKey)}">${cage?.note || ''}</td>`
+              ? `<td rowspan="${cageRowCountMap.get(cageKey)}">${escapeHtml(cage?.note || '')}</td>`
               : ''
           }
         </tr>
@@ -668,93 +677,160 @@ async function exportPrintableTable() {
     now.getMonth() + 1
   ).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
-  const pdfRoot = document.createElement('div')
-  pdfRoot.style.position = 'fixed'
-  pdfRoot.style.left = '-100000px'
-  pdfRoot.style.top = '0'
-  pdfRoot.style.width = '1120px'
-  pdfRoot.style.background = '#ffffff'
-  pdfRoot.style.color = '#111111'
-  pdfRoot.style.padding = '24px'
-  pdfRoot.style.boxSizing = 'border-box'
-  pdfRoot.style.fontFamily =
-    'PingFang SC, Hiragino Sans GB, Songti SC, Heiti SC, Microsoft YaHei, SimSun, Arial, sans-serif'
-
-  pdfRoot.innerHTML = `
-    <div style="background:#fff;color:#111;font-family:PingFang SC,Hiragino Sans GB,Songti SC,Heiti SC,Microsoft YaHei,SimSun,Arial,sans-serif;">
-      <h1 style="text-align:center;margin:0 0 8px;font-size:24px;font-weight:700;">基因小鼠笼位打印表</h1>
-      <div style="text-align:center;margin-bottom:20px;font-size:14px;color:#444;">导出日期：${dateText}</div>
-      <table style="width:100%;border-collapse:collapse;table-layout:fixed;font-family:PingFang SC,Hiragino Sans GB,Songti SC,Heiti SC,Microsoft YaHei,SimSun,Arial,sans-serif;">
-        <thead>
-          <tr>
-            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">笼位</th>
-            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">小鼠编号</th>
-            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">性别</th>
-            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">基因型</th>
-            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">年龄</th>
-            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">小鼠备注</th>
-            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">笼位备注</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${
-            rows ||
-            '<tr><td colspan="7" style="border:1px solid #333;padding:8px 10px;font-size:14px;text-align:center;">暂无数据</td></tr>'
-          }
-        </tbody>
-      </table>
-    </div>
-  `
-
-  pdfRoot.querySelectorAll('td').forEach((cell) => {
-    cell.style.border = '1px solid #333'
-    cell.style.padding = '8px 10px'
-    cell.style.fontSize = '14px'
-    cell.style.textAlign = 'center'
-    cell.style.wordBreak = 'break-word'
-    cell.style.verticalAlign = 'middle'
-  })
-
-  document.body.appendChild(pdfRoot)
-
-  try {
-    showToast('正在生成 PDF')
-
-    await loadExternalScript(
-      'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js',
-      'html2pdf'
-    )
-
-    if (document.fonts?.ready) {
-      await document.fonts.ready
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 300))
-
-    const options = {
-      margin: [8, 8, 8, 8],
-      filename: `基因小鼠笼位打印表-${dateText}.pdf`,
-      image: { type: 'jpeg', quality: 0.98 },
-      html2canvas: {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        letterRendering: true,
-        scrollX: 0,
-        scrollY: 0,
-      },
-      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
-      pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', 'td'] },
-    }
-
-    await window.html2pdf().set(options).from(pdfRoot).save()
-    showToast('已导出 PDF')
-  } catch (error) {
-    console.error(error)
-    showToast('PDF 生成失败，请检查网络后重试')
-  } finally {
-    document.body.removeChild(pdfRoot)
+  const printWindow = window.open('', '_blank')
+  if (!printWindow) {
+    showToast('浏览器阻止了打印窗口，请允许弹窗后重试')
+    return
   }
+
+  printWindow.document.write(`
+    <!doctype html>
+    <html lang="zh-CN">
+      <head>
+        <meta charset="utf-8" />
+        <title>基因小鼠笼位打印表-${dateText}</title>
+        <style>
+          @page {
+            size: A4 landscape;
+            margin: 10mm;
+          }
+
+          * {
+            box-sizing: border-box;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+
+          body {
+            margin: 0;
+            background: #ffffff;
+            color: #111111;
+            font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "SimSun", Arial, sans-serif;
+          }
+
+          .screen-actions {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 12px;
+            padding: 24px 0 10px;
+          }
+
+          .print-btn {
+            border: 0;
+            border-radius: 8px;
+            background: #111827;
+            color: #ffffff;
+            cursor: pointer;
+            font-size: 18px;
+            padding: 12px 22px;
+          }
+
+          .hint {
+            color: #666666;
+            font-size: 14px;
+            margin: 0;
+          }
+
+          .print-page {
+            width: 100%;
+            padding: 18px 18px 28px;
+          }
+
+          h1 {
+            color: #111111;
+            font-size: 24px;
+            font-weight: 700;
+            line-height: 1.35;
+            margin: 0 0 8px;
+            text-align: center;
+          }
+
+          .date {
+            color: #444444;
+            font-size: 14px;
+            margin-bottom: 20px;
+            text-align: center;
+          }
+
+          table {
+            border-collapse: collapse;
+            table-layout: fixed;
+            width: 100%;
+          }
+
+          thead {
+            display: table-header-group;
+          }
+
+          tr {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+
+          th,
+          td {
+            border: 1px solid #333333;
+            color: #111111 !important;
+            font-size: 14px;
+            line-height: 1.4;
+            padding: 8px 10px;
+            text-align: center;
+            vertical-align: middle;
+            word-break: break-word;
+          }
+
+          th {
+            background: #f3f4f6 !important;
+            font-weight: 700;
+          }
+
+          @media print {
+            .screen-actions {
+              display: none;
+            }
+
+            .print-page {
+              padding: 0;
+            }
+
+            body {
+              color: #111111 !important;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="screen-actions">
+          <button class="print-btn" onclick="window.print()">确认页面正常后，点这里打印 / 保存 PDF</button>
+          <p class="hint">如果打印预览顶部/底部出现日期、about:blank 或页码，请在打印设置里关闭“页眉和页脚”。</p>
+        </div>
+        <main class="print-page">
+          <h1>基因小鼠笼位打印表</h1>
+          <div class="date">导出日期：${dateText}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>笼位</th>
+                <th>小鼠编号</th>
+                <th>性别</th>
+                <th>基因型</th>
+                <th>年龄</th>
+                <th>小鼠备注</th>
+                <th>笼位备注</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows || '<tr><td colspan="7">暂无数据</td></tr>'}
+            </tbody>
+          </table>
+        </main>
+      </body>
+    </html>
+  `)
+  printWindow.document.close()
+  printWindow.focus()
+  showToast('打印页已打开')
 }
   function importJSON(event) {
     if (shareMode) return
