@@ -654,10 +654,8 @@ function exportPrintableTable() {
       <meta charset="UTF-8" />
       <title>基因小鼠笼位打印表-${dateText}</title>
       <style>
-        html, body, table, th, td {
-          font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", Arial, sans-serif;
-        }
         body {
+          font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
           margin: 24px;
           color: #111;
         }
@@ -689,19 +687,9 @@ function exportPrintableTable() {
           background: #f3f4f6;
           font-weight: 700;
         }
-        @page {
-          size: A4 landscape;
-          margin: 12mm;
-        }
         @media print {
           body {
-            margin: 0;
-          }
-          thead {
-            display: table-header-group;
-          }
-          tr {
-            page-break-inside: avoid;
+            margin: 12mm;
           }
         }
       </style>
@@ -725,20 +713,6 @@ function exportPrintableTable() {
           ${rows || '<tr><td colspan="7">暂无数据</td></tr>'}
         </tbody>
       </table>
-      <script>
-        async function safePrint() {
-          try {
-            if (document.fonts && document.fonts.ready) {
-              await document.fonts.ready;
-            }
-          } catch (e) {}
-          setTimeout(function () {
-            window.focus();
-            window.print();
-          }, 800);
-        }
-        window.addEventListener('load', safePrint);
-      </script>
     </body>
     </html>
   `
@@ -752,6 +726,9 @@ function exportPrintableTable() {
   printWindow.document.open()
   printWindow.document.write(html)
   printWindow.document.close()
+  printWindow.document.title = `基因小鼠笼位打印表-${dateText}`
+  printWindow.focus()
+  printWindow.print()
 }
   function importJSON(event) {
     if (shareMode) return
