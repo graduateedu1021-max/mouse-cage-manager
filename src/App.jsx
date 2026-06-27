@@ -704,7 +704,8 @@ async function exportPrintableTable() {
           body {
             margin: 0;
             background: #ffffff;
-            color: #111111;
+            color: #111111 !important;
+            -webkit-text-fill-color: #111111 !important;
             font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "SimSun", Arial, sans-serif;
           }
 
@@ -738,7 +739,8 @@ async function exportPrintableTable() {
           }
 
           h1 {
-            color: #111111;
+            color: #111111 !important;
+            -webkit-text-fill-color: #111111 !important;
             font-size: 24px;
             font-weight: 700;
             line-height: 1.35;
@@ -747,7 +749,8 @@ async function exportPrintableTable() {
           }
 
           .date {
-            color: #444444;
+            color: #444444 !important;
+            -webkit-text-fill-color: #444444 !important;
             font-size: 14px;
             margin-bottom: 20px;
             text-align: center;
@@ -772,6 +775,7 @@ async function exportPrintableTable() {
           td {
             border: 1px solid #333333;
             color: #111111 !important;
+            -webkit-text-fill-color: #111111 !important;
             font-size: 14px;
             line-height: 1.4;
             padding: 8px 10px;
@@ -786,6 +790,11 @@ async function exportPrintableTable() {
           }
 
           @media print {
+            * {
+              color: #111111 !important;
+              -webkit-text-fill-color: #111111 !important;
+            }
+
             .screen-actions {
               display: none;
             }
