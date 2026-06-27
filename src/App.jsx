@@ -644,26 +644,27 @@ async function exportPrintableTable() {
     now.getMonth() + 1
   ).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
-  const pageWidth = 1240
-  const pageHeight = 1754
-  const marginX = 32
-  const titleY = 44
-  const dateY = 76
-  const tableTop = 108
-  const headerHeight = 42
-  const rowHeight = 38
-  const bottomMargin = 34
+  const pageWidth = 2480
+  const pageHeight = 3508
+  const marginX = 64
+  const titleY = 88
+  const dateY = 152
+  const tableTop = 216
+  const headerHeight = 84
+  const rowHeight = 76
+  const bottomMargin = 68
   const rowsPerPage = Math.max(
     1,
     Math.floor((pageHeight - tableTop - headerHeight - bottomMargin) / rowHeight)
   )
-  const colWidths = [82, 128, 56, 205, 104, 282, 319]
+  const colWidths = [164, 256, 112, 410, 208, 564, 638]
   const headers = ['笼位', '小鼠编号', '性别', '基因型', '年龄', '小鼠备注', '笼位备注']
   const fontFamily =
     'PingFang SC, Hiragino Sans GB, Microsoft YaHei, SimSun, Arial, sans-serif'
 
   function wrapText(ctx, text, maxWidth, maxLines = 2) {
-    const value = String(text || '-')
+    const value = text === undefined || text === null ? '-' : String(text)
+    if (!value) return []
     const lines = []
     let line = ''
 
@@ -686,8 +687,9 @@ async function exportPrintableTable() {
     ctx.fillStyle = color
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    const lines = wrapText(ctx, text, width - 10, maxLines)
-    const lineHeight = Number(font.match(/(\d+)px/)?.[1] || 18) + 3
+    const lines = wrapText(ctx, text, width - 20, maxLines)
+    if (!lines.length) return
+    const lineHeight = Number(font.match(/(\d+)px/)?.[1] || 36) + 6
     const totalHeight = lines.length * lineHeight
     const firstY = y + height / 2 - totalHeight / 2 + lineHeight / 2
 
@@ -709,7 +711,7 @@ async function exportPrintableTable() {
       y,
       width,
       height,
-      options.font || `18px ${fontFamily}`,
+      options.font || `36px ${fontFamily}`,
       options.color || '#111111',
       options.maxLines || 2
     )
@@ -726,9 +728,9 @@ async function exportPrintableTable() {
     ctx.fillStyle = '#111111'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.font = `700 30px ${fontFamily}`
+    ctx.font = `700 60px ${fontFamily}`
     ctx.fillText('基因小鼠笼位打印表', pageWidth / 2, titleY)
-    ctx.font = `20px ${fontFamily}`
+    ctx.font = `40px ${fontFamily}`
     ctx.fillStyle = '#444444'
     ctx.fillText(`导出日期：${dateText}`, pageWidth / 2, dateY)
 
@@ -736,7 +738,7 @@ async function exportPrintableTable() {
     headers.forEach((header, index) => {
       drawCell(ctx, x, tableTop, colWidths[index], headerHeight, header, {
         fill: '#f3f4f6',
-        font: `700 18px ${fontFamily}`,
+        font: `700 36px ${fontFamily}`,
         maxLines: 1,
       })
       x += colWidths[index]
@@ -745,14 +747,40 @@ async function exportPrintableTable() {
     rowsForPage.forEach((row, rowIndex) => {
       const y = tableTop + headerHeight + rowIndex * rowHeight
       let cellX = marginX
-      row.forEach((cell, cellIndex) => {
+      row.cells.slice(0, 6).forEach((cell, cellIndex) => {
         drawCell(ctx, cellX, y, colWidths[cellIndex], rowHeight, cell)
         cellX += colWidths[cellIndex]
       })
     })
 
+    const cageNoteX = marginX + colWidths.slice(0, 6).reduce((sum, width) => sum + width, 0)
+    let spanStart = 0
+    while (spanStart < rowsForPage.length) {
+      const first = rowsForPage[spanStart]
+      let spanEnd = spanStart + 1
+
+      while (
+        spanEnd < rowsForPage.length &&
+        rowsForPage[spanEnd].cageKey === first.cageKey
+      ) {
+        spanEnd += 1
+      }
+
+      drawCell(
+        ctx,
+        cageNoteX,
+        tableTop + headerHeight + spanStart * rowHeight,
+        colWidths[6],
+        (spanEnd - spanStart) * rowHeight,
+        first.cells[6],
+        { maxLines: Math.max(2, (spanEnd - spanStart) * 2) }
+      )
+
+      spanStart = spanEnd
+    }
+
     ctx.fillStyle = '#555555'
-    ctx.font = `16px ${fontFamily}`
+    ctx.font = `32px ${fontFamily}`
     ctx.textAlign = 'right'
     ctx.fillText(`${pageNumber}/${pageCount}`, pageWidth - marginX, pageHeight - 24)
 
@@ -761,18 +789,23 @@ async function exportPrintableTable() {
 
   const rows = grouped.map((m) => {
     const cage = cageMap.get(m.cageId)
-    return [
-      cage?.cageNo || '-',
-      m.mouseId || '-',
-      m.sex || '-',
-      m.genotype || '-',
-      formatAge(m.birthDate),
-      m.note || '',
-      cage?.note || '',
-    ]
+    return {
+      cageKey: m.cageId || `no-cage-${m.id || m.mouseId || Math.random()}`,
+      cells: [
+        cage?.cageNo || '-',
+        m.mouseId || '-',
+        m.sex || '-',
+        m.genotype || '-',
+        formatAge(m.birthDate),
+        m.note || '',
+        cage?.note || '',
+      ],
+    }
   })
 
-  const printableRows = rows.length ? rows : [['-', '-', '-', '-', '-', '暂无数据', '']]
+  const printableRows = rows.length
+    ? rows
+    : [{ cageKey: 'empty', cells: ['-', '-', '-', '-', '-', '暂无数据', ''] }]
   const pageRows = []
   for (let i = 0; i < printableRows.length; i += rowsPerPage) {
     pageRows.push(printableRows.slice(i, i + rowsPerPage))
