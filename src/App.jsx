@@ -654,10 +654,13 @@ function exportPrintableTable() {
       <meta charset="UTF-8" />
       <title>基因小鼠笼位打印表-${dateText}</title>
       <style>
+        html, body, table, thead, tbody, tr, th, td, h1, div, button {
+          font-family: "PingFang SC", "Hiragino Sans GB", "Songti SC", "Heiti SC", "Microsoft YaHei", "SimSun", sans-serif !important;
+        }
         body {
-          font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
           margin: 24px;
           color: #111;
+          -webkit-font-smoothing: antialiased;
         }
         h1 {
           text-align: center;
@@ -717,8 +720,13 @@ function exportPrintableTable() {
           margin: 10mm;
         }
         @media print {
+          html, body, table, thead, tbody, tr, th, td, h1, div {
+            font-family: "PingFang SC", "Hiragino Sans GB", "Songti SC", "Heiti SC", "Microsoft YaHei", "SimSun", sans-serif !important;
+          }
           body {
             margin: 0;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
           }
           .print-actions, .print-tip {
             display: none !important;
