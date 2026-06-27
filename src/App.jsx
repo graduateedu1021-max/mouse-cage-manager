@@ -644,25 +644,25 @@ async function exportPrintableTable() {
     now.getMonth() + 1
   ).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
-  const pageWidth = 1600
-  const pageHeight = 1131
-  const marginX = 48
-  const titleY = 54
-  const dateY = 94
-  const tableTop = 140
-  const headerHeight = 54
-  const rowHeight = 54
-  const bottomMargin = 46
+  const pageWidth = 1240
+  const pageHeight = 1754
+  const marginX = 32
+  const titleY = 44
+  const dateY = 76
+  const tableTop = 108
+  const headerHeight = 42
+  const rowHeight = 38
+  const bottomMargin = 34
   const rowsPerPage = Math.max(
     1,
     Math.floor((pageHeight - tableTop - headerHeight - bottomMargin) / rowHeight)
   )
-  const colWidths = [140, 180, 90, 260, 150, 350, 382]
+  const colWidths = [82, 128, 56, 205, 104, 282, 319]
   const headers = ['笼位', '小鼠编号', '性别', '基因型', '年龄', '小鼠备注', '笼位备注']
   const fontFamily =
     'PingFang SC, Hiragino Sans GB, Microsoft YaHei, SimSun, Arial, sans-serif'
 
-  function wrapText(ctx, text, maxWidth) {
+  function wrapText(ctx, text, maxWidth, maxLines = 2) {
     const value = String(text || '-')
     const lines = []
     let line = ''
@@ -678,16 +678,16 @@ async function exportPrintableTable() {
     }
 
     if (line) lines.push(line)
-    return lines.slice(0, 3)
+    return lines.slice(0, maxLines)
   }
 
-  function drawWrappedText(ctx, text, x, y, width, height, font, color = '#111111') {
+  function drawWrappedText(ctx, text, x, y, width, height, font, color = '#111111', maxLines = 2) {
     ctx.font = font
     ctx.fillStyle = color
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    const lines = wrapText(ctx, text, width - 18)
-    const lineHeight = Number(font.match(/(\d+)px/)?.[1] || 20) + 6
+    const lines = wrapText(ctx, text, width - 10, maxLines)
+    const lineHeight = Number(font.match(/(\d+)px/)?.[1] || 18) + 3
     const totalHeight = lines.length * lineHeight
     const firstY = y + height / 2 - totalHeight / 2 + lineHeight / 2
 
@@ -709,8 +709,9 @@ async function exportPrintableTable() {
       y,
       width,
       height,
-      options.font || `24px ${fontFamily}`,
-      options.color || '#111111'
+      options.font || `18px ${fontFamily}`,
+      options.color || '#111111',
+      options.maxLines || 2
     )
   }
 
@@ -725,9 +726,9 @@ async function exportPrintableTable() {
     ctx.fillStyle = '#111111'
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    ctx.font = `700 34px ${fontFamily}`
+    ctx.font = `700 30px ${fontFamily}`
     ctx.fillText('基因小鼠笼位打印表', pageWidth / 2, titleY)
-    ctx.font = `24px ${fontFamily}`
+    ctx.font = `20px ${fontFamily}`
     ctx.fillStyle = '#444444'
     ctx.fillText(`导出日期：${dateText}`, pageWidth / 2, dateY)
 
@@ -735,7 +736,8 @@ async function exportPrintableTable() {
     headers.forEach((header, index) => {
       drawCell(ctx, x, tableTop, colWidths[index], headerHeight, header, {
         fill: '#f3f4f6',
-        font: `700 24px ${fontFamily}`,
+        font: `700 18px ${fontFamily}`,
+        maxLines: 1,
       })
       x += colWidths[index]
     })
@@ -750,7 +752,7 @@ async function exportPrintableTable() {
     })
 
     ctx.fillStyle = '#555555'
-    ctx.font = `20px ${fontFamily}`
+    ctx.font = `16px ${fontFamily}`
     ctx.textAlign = 'right'
     ctx.fillText(`${pageNumber}/${pageCount}`, pageWidth - marginX, pageHeight - 24)
 
@@ -794,7 +796,7 @@ async function exportPrintableTable() {
         <meta charset="utf-8" />
         <title>基因小鼠笼位打印表-${dateText}</title>
         <style>
-          @page { size: A4 landscape; margin: 0; }
+          @page { size: A4 portrait; margin: 0; }
           html, body { margin: 0; padding: 0; background: #ffffff; }
           .screen-actions {
             display: flex;
@@ -816,15 +818,15 @@ async function exportPrintableTable() {
           .hint { color: #666666; font-size: 14px; margin: 0; }
           .page {
             display: block;
-            width: 297mm;
-            height: 210mm;
+            width: 210mm;
+            height: 297mm;
             page-break-after: always;
           }
           .page:last-child { page-break-after: auto; }
           .page img {
             display: block;
-            width: 297mm;
-            height: 210mm;
+            width: 210mm;
+            height: 297mm;
           }
           @media print {
             .screen-actions { display: none; }
