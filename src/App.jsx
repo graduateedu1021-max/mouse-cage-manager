@@ -45,6 +45,27 @@ function formatAge(birthDate) {
   return weeks ? `${months}月${weeks}周` : `${months}月`
 }
 
+
+function loadExternalScript(src, globalName) {
+  if (window[globalName]) return Promise.resolve()
+
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`)
+    if (existing) {
+      existing.addEventListener('load', resolve, { once: true })
+      existing.addEventListener('error', reject, { once: true })
+      return
+    }
+
+    const script = document.createElement('script')
+    script.src = src
+    script.async = true
+    script.onload = resolve
+    script.onerror = reject
+    document.head.appendChild(script)
+  })
+}
+
 function getStatusClass(status) {
   if (['正常', '在养', '保留'].includes(status)) return 'green'
   if (['配对中', '哺乳中', '待鉴定', '待剪尾', '待结果'].includes(status)) {
@@ -595,7 +616,7 @@ function App() {
     showToast('已导出分享 JSON')
   }
 
-function exportPrintableTable() {
+async function exportPrintableTable() {
   const cageMap = new Map(state.cages.map((c) => [c.id, c]))
 
   const grouped = [...state.mice].sort((a, b) => {
@@ -647,131 +668,93 @@ function exportPrintableTable() {
     now.getMonth() + 1
   ).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
-  const html = `
-    <!DOCTYPE html>
-    <html lang="zh-CN">
-    <head>
-      <meta charset="UTF-8" />
-      <title>基因小鼠笼位打印表-${dateText}</title>
-      <style>
-        html, body, table, thead, tbody, tr, th, td, h1, div, button {
-          font-family: "PingFang SC", "Hiragino Sans GB", "Songti SC", "Heiti SC", "Microsoft YaHei", "SimSun", sans-serif !important;
-        }
-        body {
-          margin: 24px;
-          color: #111;
-          -webkit-font-smoothing: antialiased;
-        }
-        h1 {
-          text-align: center;
-          margin: 0 0 8px;
-          font-size: 24px;
-        }
-        .sub {
-          text-align: center;
-          margin-bottom: 20px;
-          font-size: 14px;
-          color: #444;
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          table-layout: fixed;
-        }
-        th, td {
-          border: 1px solid #333;
-          padding: 8px 10px;
-          font-size: 14px;
-          text-align: center;
-          word-break: break-word;
-          vertical-align: middle;
-        }
-        th {
-          background: #f3f4f6;
-          font-weight: 700;
-        }
-        .print-actions {
-          position: sticky;
-          top: 0;
-          display: flex;
-          justify-content: center;
-          gap: 12px;
-          padding: 10px 0 14px;
-          background: white;
-          z-index: 10;
-        }
-        .print-actions button {
-          border: 1px solid #111827;
-          background: #111827;
-          color: white;
-          border-radius: 8px;
-          padding: 8px 18px;
-          font-size: 14px;
-          cursor: pointer;
-        }
-        .print-tip {
-          text-align: center;
-          color: #666;
-          font-size: 12px;
-          margin-bottom: 12px;
-        }
-        @page {
-          size: A4 landscape;
-          margin: 10mm;
-        }
-        @media print {
-          html, body, table, thead, tbody, tr, th, td, h1, div {
-            font-family: "PingFang SC", "Hiragino Sans GB", "Songti SC", "Heiti SC", "Microsoft YaHei", "SimSun", sans-serif !important;
-          }
-          body {
-            margin: 0;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-          .print-actions, .print-tip {
-            display: none !important;
-          }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="print-actions">
-        <button type="button" onclick="window.print()">确认页面正常后，点这里打印 / 保存 PDF</button>
-      </div>
-      <div class="print-tip">如果打印预览顶部/底部出现日期、about:blank 或页码，请在打印设置里关闭“页眉和页脚”。</div>
-      <h1>基因小鼠笼位打印表</h1>
-      <div class="sub">导出日期：${dateText}</div>
-      <table>
+  const pdfRoot = document.createElement('div')
+  pdfRoot.style.position = 'fixed'
+  pdfRoot.style.left = '-100000px'
+  pdfRoot.style.top = '0'
+  pdfRoot.style.width = '1120px'
+  pdfRoot.style.background = '#ffffff'
+  pdfRoot.style.color = '#111111'
+  pdfRoot.style.padding = '24px'
+  pdfRoot.style.boxSizing = 'border-box'
+  pdfRoot.style.fontFamily =
+    'PingFang SC, Hiragino Sans GB, Songti SC, Heiti SC, Microsoft YaHei, SimSun, Arial, sans-serif'
+
+  pdfRoot.innerHTML = `
+    <div style="background:#fff;color:#111;font-family:PingFang SC,Hiragino Sans GB,Songti SC,Heiti SC,Microsoft YaHei,SimSun,Arial,sans-serif;">
+      <h1 style="text-align:center;margin:0 0 8px;font-size:24px;font-weight:700;">基因小鼠笼位打印表</h1>
+      <div style="text-align:center;margin-bottom:20px;font-size:14px;color:#444;">导出日期：${dateText}</div>
+      <table style="width:100%;border-collapse:collapse;table-layout:fixed;font-family:PingFang SC,Hiragino Sans GB,Songti SC,Heiti SC,Microsoft YaHei,SimSun,Arial,sans-serif;">
         <thead>
           <tr>
-            <th>笼位</th>
-            <th>小鼠编号</th>
-            <th>性别</th>
-            <th>基因型</th>
-            <th>年龄</th>
-            <th>小鼠备注</th>
-            <th>笼位备注</th>
+            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">笼位</th>
+            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">小鼠编号</th>
+            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">性别</th>
+            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">基因型</th>
+            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">年龄</th>
+            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">小鼠备注</th>
+            <th style="border:1px solid #333;background:#f3f4f6;padding:8px 10px;font-size:14px;text-align:center;font-weight:700;">笼位备注</th>
           </tr>
         </thead>
         <tbody>
-          ${rows || '<tr><td colspan="7">暂无数据</td></tr>'}
+          ${
+            rows ||
+            '<tr><td colspan="7" style="border:1px solid #333;padding:8px 10px;font-size:14px;text-align:center;">暂无数据</td></tr>'
+          }
         </tbody>
       </table>
-    </body>
-    </html>
+    </div>
   `
 
-  const printWindow = window.open('', '_blank')
-  if (!printWindow) {
-    showToast('打印窗口打开失败')
-    return
-  }
+  pdfRoot.querySelectorAll('td').forEach((cell) => {
+    cell.style.border = '1px solid #333'
+    cell.style.padding = '8px 10px'
+    cell.style.fontSize = '14px'
+    cell.style.textAlign = 'center'
+    cell.style.wordBreak = 'break-word'
+    cell.style.verticalAlign = 'middle'
+  })
 
-  printWindow.document.open()
-  printWindow.document.write(html)
-  printWindow.document.close()
-  printWindow.document.title = `基因小鼠笼位打印表-${dateText}`
-  printWindow.focus()
+  document.body.appendChild(pdfRoot)
+
+  try {
+    showToast('正在生成 PDF')
+
+    await loadExternalScript(
+      'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js',
+      'html2pdf'
+    )
+
+    if (document.fonts?.ready) {
+      await document.fonts.ready
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 300))
+
+    const options = {
+      margin: [8, 8, 8, 8],
+      filename: `基因小鼠笼位打印表-${dateText}.pdf`,
+      image: { type: 'jpeg', quality: 0.98 },
+      html2canvas: {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        letterRendering: true,
+        scrollX: 0,
+        scrollY: 0,
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' },
+      pagebreak: { mode: ['css', 'legacy'], avoid: ['tr', 'td'] },
+    }
+
+    await window.html2pdf().set(options).from(pdfRoot).save()
+    showToast('已导出 PDF')
+  } catch (error) {
+    console.error(error)
+    showToast('PDF 生成失败，请检查网络后重试')
+  } finally {
+    document.body.removeChild(pdfRoot)
+  }
 }
   function importJSON(event) {
     if (shareMode) return
