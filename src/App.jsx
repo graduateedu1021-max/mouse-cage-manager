@@ -687,14 +687,50 @@ function exportPrintableTable() {
           background: #f3f4f6;
           font-weight: 700;
         }
+        .print-actions {
+          position: sticky;
+          top: 0;
+          display: flex;
+          justify-content: center;
+          gap: 12px;
+          padding: 10px 0 14px;
+          background: white;
+          z-index: 10;
+        }
+        .print-actions button {
+          border: 1px solid #111827;
+          background: #111827;
+          color: white;
+          border-radius: 8px;
+          padding: 8px 18px;
+          font-size: 14px;
+          cursor: pointer;
+        }
+        .print-tip {
+          text-align: center;
+          color: #666;
+          font-size: 12px;
+          margin-bottom: 12px;
+        }
+        @page {
+          size: A4 landscape;
+          margin: 10mm;
+        }
         @media print {
           body {
-            margin: 12mm;
+            margin: 0;
+          }
+          .print-actions, .print-tip {
+            display: none !important;
           }
         }
       </style>
     </head>
     <body>
+      <div class="print-actions">
+        <button type="button" onclick="window.print()">确认页面正常后，点这里打印 / 保存 PDF</button>
+      </div>
+      <div class="print-tip">如果打印预览顶部/底部出现日期、about:blank 或页码，请在打印设置里关闭“页眉和页脚”。</div>
       <h1>基因小鼠笼位打印表</h1>
       <div class="sub">导出日期：${dateText}</div>
       <table>
@@ -728,7 +764,6 @@ function exportPrintableTable() {
   printWindow.document.close()
   printWindow.document.title = `基因小鼠笼位打印表-${dateText}`
   printWindow.focus()
-  printWindow.print()
 }
   function importJSON(event) {
     if (shareMode) return
