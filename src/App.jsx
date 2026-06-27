@@ -639,43 +639,146 @@ async function exportPrintableTable() {
     })
   })
 
-  const cageRowCountMap = new Map()
-  grouped.forEach((m) => {
-    const key = m.cageId || 'no-cage'
-    cageRowCountMap.set(key, (cageRowCountMap.get(key) || 0) + 1)
-  })
-
-  const cagePrintedMap = new Map()
-
-  const rows = grouped
-    .map((m) => {
-      const cage = cageMap.get(m.cageId)
-      const cageKey = m.cageId || 'no-cage'
-      const isFirstRowOfCage = !cagePrintedMap.get(cageKey)
-      cagePrintedMap.set(cageKey, true)
-
-      return `
-        <tr>
-          <td>${escapeHtml(cage?.cageNo || '-')}</td>
-          <td>${escapeHtml(m.mouseId || '-')}</td>
-          <td>${escapeHtml(m.sex || '-')}</td>
-          <td>${escapeHtml(m.genotype || '-')}</td>
-          <td>${escapeHtml(formatAge(m.birthDate))}</td>
-          <td>${escapeHtml(m.note || '')}</td>
-          ${
-            isFirstRowOfCage
-              ? `<td rowspan="${cageRowCountMap.get(cageKey)}">${escapeHtml(cage?.note || '')}</td>`
-              : ''
-          }
-        </tr>
-      `
-    })
-    .join('')
-
   const now = new Date()
   const dateText = `${now.getFullYear()}-${String(
     now.getMonth() + 1
   ).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+
+  const pageWidth = 1600
+  const pageHeight = 1131
+  const marginX = 48
+  const titleY = 54
+  const dateY = 94
+  const tableTop = 140
+  const headerHeight = 54
+  const rowHeight = 54
+  const bottomMargin = 46
+  const rowsPerPage = Math.max(
+    1,
+    Math.floor((pageHeight - tableTop - headerHeight - bottomMargin) / rowHeight)
+  )
+  const colWidths = [140, 180, 90, 260, 150, 350, 382]
+  const headers = ['笼位', '小鼠编号', '性别', '基因型', '年龄', '小鼠备注', '笼位备注']
+  const fontFamily =
+    'PingFang SC, Hiragino Sans GB, Microsoft YaHei, SimSun, Arial, sans-serif'
+
+  function wrapText(ctx, text, maxWidth) {
+    const value = String(text || '-')
+    const lines = []
+    let line = ''
+
+    for (const char of value) {
+      const next = line + char
+      if (ctx.measureText(next).width > maxWidth && line) {
+        lines.push(line)
+        line = char
+      } else {
+        line = next
+      }
+    }
+
+    if (line) lines.push(line)
+    return lines.slice(0, 3)
+  }
+
+  function drawWrappedText(ctx, text, x, y, width, height, font, color = '#111111') {
+    ctx.font = font
+    ctx.fillStyle = color
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    const lines = wrapText(ctx, text, width - 18)
+    const lineHeight = Number(font.match(/(\d+)px/)?.[1] || 20) + 6
+    const totalHeight = lines.length * lineHeight
+    const firstY = y + height / 2 - totalHeight / 2 + lineHeight / 2
+
+    lines.forEach((line, index) => {
+      ctx.fillText(line, x + width / 2, firstY + index * lineHeight)
+    })
+  }
+
+  function drawCell(ctx, x, y, width, height, text, options = {}) {
+    ctx.fillStyle = options.fill || '#ffffff'
+    ctx.fillRect(x, y, width, height)
+    ctx.strokeStyle = '#222222'
+    ctx.lineWidth = 2
+    ctx.strokeRect(x, y, width, height)
+    drawWrappedText(
+      ctx,
+      text,
+      x,
+      y,
+      width,
+      height,
+      options.font || `24px ${fontFamily}`,
+      options.color || '#111111'
+    )
+  }
+
+  function makePage(rowsForPage, pageNumber, pageCount) {
+    const canvas = document.createElement('canvas')
+    canvas.width = pageWidth
+    canvas.height = pageHeight
+    const ctx = canvas.getContext('2d')
+
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, pageWidth, pageHeight)
+    ctx.fillStyle = '#111111'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.font = `700 34px ${fontFamily}`
+    ctx.fillText('基因小鼠笼位打印表', pageWidth / 2, titleY)
+    ctx.font = `24px ${fontFamily}`
+    ctx.fillStyle = '#444444'
+    ctx.fillText(`导出日期：${dateText}`, pageWidth / 2, dateY)
+
+    let x = marginX
+    headers.forEach((header, index) => {
+      drawCell(ctx, x, tableTop, colWidths[index], headerHeight, header, {
+        fill: '#f3f4f6',
+        font: `700 24px ${fontFamily}`,
+      })
+      x += colWidths[index]
+    })
+
+    rowsForPage.forEach((row, rowIndex) => {
+      const y = tableTop + headerHeight + rowIndex * rowHeight
+      let cellX = marginX
+      row.forEach((cell, cellIndex) => {
+        drawCell(ctx, cellX, y, colWidths[cellIndex], rowHeight, cell)
+        cellX += colWidths[cellIndex]
+      })
+    })
+
+    ctx.fillStyle = '#555555'
+    ctx.font = `20px ${fontFamily}`
+    ctx.textAlign = 'right'
+    ctx.fillText(`${pageNumber}/${pageCount}`, pageWidth - marginX, pageHeight - 24)
+
+    return canvas.toDataURL('image/png')
+  }
+
+  const rows = grouped.map((m) => {
+    const cage = cageMap.get(m.cageId)
+    return [
+      cage?.cageNo || '-',
+      m.mouseId || '-',
+      m.sex || '-',
+      m.genotype || '-',
+      formatAge(m.birthDate),
+      m.note || '',
+      cage?.note || '',
+    ]
+  })
+
+  const printableRows = rows.length ? rows : [['-', '-', '-', '-', '-', '暂无数据', '']]
+  const pageRows = []
+  for (let i = 0; i < printableRows.length; i += rowsPerPage) {
+    pageRows.push(printableRows.slice(i, i + rowsPerPage))
+  }
+
+  const pageImages = pageRows.map((items, index) =>
+    makePage(items, index + 1, pageRows.length)
+  )
 
   const printWindow = window.open('', '_blank')
   if (!printWindow) {
@@ -683,6 +786,7 @@ async function exportPrintableTable() {
     return
   }
 
+  printWindow.document.open()
   printWindow.document.write(`
     <!doctype html>
     <html lang="zh-CN">
@@ -690,34 +794,17 @@ async function exportPrintableTable() {
         <meta charset="utf-8" />
         <title>基因小鼠笼位打印表-${dateText}</title>
         <style>
-          @page {
-            size: A4 landscape;
-            margin: 10mm;
-          }
-
-          * {
-            box-sizing: border-box;
-            -webkit-print-color-adjust: exact;
-            print-color-adjust: exact;
-          }
-
-          body {
-            margin: 0;
-            background: #ffffff;
-            color: #111111 !important;
-            -webkit-text-fill-color: #111111 !important;
-            font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "SimSun", Arial, sans-serif;
-          }
-
+          @page { size: A4 landscape; margin: 0; }
+          html, body { margin: 0; padding: 0; background: #ffffff; }
           .screen-actions {
             display: flex;
             flex-direction: column;
             align-items: center;
             gap: 12px;
-            padding: 24px 0 10px;
+            padding: 24px 0;
+            font-family: Arial, sans-serif;
           }
-
-          .print-btn {
+          button {
             border: 0;
             border-radius: 8px;
             background: #111827;
@@ -726,120 +813,38 @@ async function exportPrintableTable() {
             font-size: 18px;
             padding: 12px 22px;
           }
-
-          .hint {
-            color: #666666;
-            font-size: 14px;
-            margin: 0;
+          .hint { color: #666666; font-size: 14px; margin: 0; }
+          .page {
+            display: block;
+            width: 297mm;
+            height: 210mm;
+            page-break-after: always;
           }
-
-          .print-page {
-            width: 100%;
-            padding: 18px 18px 28px;
+          .page:last-child { page-break-after: auto; }
+          .page img {
+            display: block;
+            width: 297mm;
+            height: 210mm;
           }
-
-          h1 {
-            color: #111111 !important;
-            -webkit-text-fill-color: #111111 !important;
-            font-size: 24px;
-            font-weight: 700;
-            line-height: 1.35;
-            margin: 0 0 8px;
-            text-align: center;
-          }
-
-          .date {
-            color: #444444 !important;
-            -webkit-text-fill-color: #444444 !important;
-            font-size: 14px;
-            margin-bottom: 20px;
-            text-align: center;
-          }
-
-          table {
-            border-collapse: collapse;
-            table-layout: fixed;
-            width: 100%;
-          }
-
-          thead {
-            display: table-header-group;
-          }
-
-          tr {
-            break-inside: avoid;
-            page-break-inside: avoid;
-          }
-
-          th,
-          td {
-            border: 1px solid #333333;
-            color: #111111 !important;
-            -webkit-text-fill-color: #111111 !important;
-            font-size: 14px;
-            line-height: 1.4;
-            padding: 8px 10px;
-            text-align: center;
-            vertical-align: middle;
-            word-break: break-word;
-          }
-
-          th {
-            background: #f3f4f6 !important;
-            font-weight: 700;
-          }
-
           @media print {
-            * {
-              color: #111111 !important;
-              -webkit-text-fill-color: #111111 !important;
-            }
-
-            .screen-actions {
-              display: none;
-            }
-
-            .print-page {
-              padding: 0;
-            }
-
-            body {
-              color: #111111 !important;
-            }
+            .screen-actions { display: none; }
           }
         </style>
       </head>
       <body>
         <div class="screen-actions">
-          <button class="print-btn" onclick="window.print()">确认页面正常后，点这里打印 / 保存 PDF</button>
-          <p class="hint">如果打印预览顶部/底部出现日期、about:blank 或页码，请在打印设置里关闭“页眉和页脚”。</p>
+          <button onclick="window.print()">确认页面正常后，点这里打印 / 保存 PDF</button>
+          <p class="hint">如果顶部/底部出现日期、about:blank 或页码，请在打印设置里关闭“页眉和页脚”。</p>
         </div>
-        <main class="print-page">
-          <h1>基因小鼠笼位打印表</h1>
-          <div class="date">导出日期：${dateText}</div>
-          <table>
-            <thead>
-              <tr>
-                <th>笼位</th>
-                <th>小鼠编号</th>
-                <th>性别</th>
-                <th>基因型</th>
-                <th>年龄</th>
-                <th>小鼠备注</th>
-                <th>笼位备注</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows || '<tr><td colspan="7">暂无数据</td></tr>'}
-            </tbody>
-          </table>
-        </main>
+        ${pageImages
+          .map((src, index) => `<div class="page"><img src="${src}" alt="打印表第 ${index + 1} 页" /></div>`)
+          .join('')}
       </body>
     </html>
   `)
   printWindow.document.close()
   printWindow.focus()
-  showToast('打印页已打开')
+  showToast('打印图片页已打开')
 }
   function importJSON(event) {
     if (shareMode) return
