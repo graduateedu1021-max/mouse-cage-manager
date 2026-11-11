@@ -1,16 +1,57 @@
-# React + Vite
+# 基因小鼠笼位管理
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+面向基因小鼠繁育与实验的笼位管理网页。桌面和手机都能用，数据默认保存在当前浏览器，可导出 JSON 备份。
 
-Currently, two official plugins are available:
+## 主要功能
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **一窝录入**：选笼位、出生日期、基因型，填公母数量，一次生成整窝编号，自动接续当前最大编号。
+- **单只录入 / 编辑**：编号、性别、基因型、出生日期、笼位、来源、状态；父母本折叠在“更多”里，不挡路。
+- **笼位视图**：笼号、状态、在养数量、公母、基因型分布、备注；超过 5 只自动提示偏挤。
+- **批量操作**：勾选多只后批量改状态、换笼、改基因型或删除；“整笼待鉴定 / 整笼已取材”一键处理。
+- **打印 / PDF**：A4 纵向自动分页，按笼位分组，笼位备注合并；可打印全部、当前筛选或单个笼位。
+- **手机版**：底部导航、全屏录入面板、卡片式小鼠列表，适配 iPhone 安全区域。
+- **只读分享**：`?data=xxx.json` 打开分享数据，不能修改，可“保存到我的浏览器”。
+- **数据备份**：导出 / 导入 JSON；导入前会留一份应急备份。
 
-## React Compiler
+## 本地运行
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm install
+npm run dev      # 开发预览
+npm run build    # 生产构建，输出到 dist/
+npm run preview  # 预览生产构建
+```
 
-## Expanding the ESLint configuration
+站点 base 是 `/mouse-cage-manager/`，所以本地地址是：
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```text
+http://127.0.0.1:5173/mouse-cage-manager/
+```
+
+## 数据说明
+
+- 数据保存在浏览器 `localStorage`，键名：`mouse_breeding_cagecentric_v1`。
+- 更新网站不会丢数据：同一域名下继续使用原来的键。
+- 换电脑 / 换手机 / 清缓存前，先在“导入导出”里导出 JSON，再到新设备导入。
+- 手机第一次打开是空的，可以从电脑导出 JSON 后用 AirDrop / 微信传到手机，再在手机上导入。
+
+## 打印说明
+
+- 打印面板里可以选“全部 / 当前筛选 / 单个笼”。
+- 默认不打印“已取材 / 淘汰”的小鼠，需要时勾选“包含已取材 / 淘汰”。
+- 浏览器打印设置选 **A4 纵向**，关闭“页眉和页脚”。
+- 手机上点“打印”会打开一个新页面，再点“打印 / 保存 PDF”，在系统分享菜单里选打印或存储到“文件”。
+
+## 部署
+
+推送到 `main` 分支后，GitHub Actions 会自动构建并发布到 GitHub Pages：
+
+```bash
+git add .
+git commit -m "优化手机端、快速录入和打印"
+git push
+```
+
+## 技术栈
+
+React 19 + Vite 8，无后端；打印页面由 Canvas 生成 300dpi A4 图片，保证中文字体和分页稳定。
