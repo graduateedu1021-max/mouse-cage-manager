@@ -1490,6 +1490,7 @@ function App() {
                 <option value="哺乳中">哺乳中</option>
                 <option value="待剪尾">待剪尾</option>
                 <option value="待结果">待结果</option>
+                <option value="待鉴定">待鉴定</option>
                 <option value="已分笼">已分笼</option>
               </select>
               <span className="result-count">{filteredCages.length} 个</span>
@@ -2961,6 +2962,7 @@ function App() {
               <option value="哺乳中">哺乳中</option>
               <option value="待剪尾">待剪尾</option>
               <option value="待结果">待结果</option>
+              <option value="待鉴定">待鉴定</option>
               <option value="已分笼">已分笼</option>
             </select>
           </div>
